@@ -1,0 +1,12 @@
+## Python
+winget install Python.Python.3.10
+/
+python -m pip install --upgrade pip
+python -m ensurepip --upgrade
+
+## Bibliotheken
+pip install customtkinter==5.2.2 "opencv-python>=4.10.0,<4.11.0" numpy==1.26.4 tensorflow==2.16.1
+
+## Versionstest
+python --version
+pip show customtkinter opencv-python numpy tensorflow

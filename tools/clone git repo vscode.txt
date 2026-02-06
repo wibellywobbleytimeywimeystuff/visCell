@@ -1,0 +1,8 @@
+1.0 Kopiere URL vom Repo
+1.1 GitHub Pull Requests addon installieren
+1.2 sign in with github
+
+2.0 STRG+Umschalt+P in VS Code
+2.1 mit Enter Git: Clone bestätigen
+2.2 URL einfügen
+2.3 lokaler Ordner auswählen

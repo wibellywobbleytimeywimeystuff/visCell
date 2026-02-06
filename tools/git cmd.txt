@@ -1,0 +1,37 @@
+## Terminal
+STRG+ö
+
+
+## Tägliche Synchronisation
+git pull
+
+
+## Änderungen speichern
+# Vorbereitung speichern
+git add .
+
+# Beschreibung einfügen
+git commit -m "Text"
+
+# sync mit GitHub
+git push
+
+
+## Branches
+# Neuer Zweig
+git branch NAME
+
+# Zweigwechsel
+git checkout NAME
+
+# Zusammenfügen mit aktuellen Zweig
+git merge NAME
+
+# Änderungen ansehen
+git status
+
+# Historie anzeigen
+git log
+
+
+
