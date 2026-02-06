@@ -6,6 +6,7 @@ Beschreibung:
 Dieses Skript ist die grafische Benutzeroberflächedes Projekts Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse von mikroskopischen Zellstrukturen.
 
 Autor: Max Sielhorst
+Projektname: visCell
 Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse
 von mikroskopischen Zellstrukturen.
 """
