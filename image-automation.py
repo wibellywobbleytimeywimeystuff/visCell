@@ -76,6 +76,8 @@ class ImageApp(ctk.CTk):
         self.control_frame = ctk.CTkFrame(self, width=320)
         self.control_frame.pack(side="left", fill="y", padx=10, pady=10)
 
+        self.control_frame.pack_propagate(False)
+
         ctk.CTkLabel(self.control_frame, text="Steuerung", font=ctk.CTkFont(size=16, weight="bold")).pack(
             pady=(5, 10), anchor="w"
         )
@@ -87,19 +89,19 @@ class ImageApp(ctk.CTk):
         ).pack(pady=(0, 15), fill="x")
 
         # Helligkeit
-        ctk.CTkLabel(self.control_frame, text="Helligkeit (brightness/beta)").pack(anchor="w")
+        ctk.CTkLabel(self.control_frame, text="Helligkeit").pack(anchor="w")
         self.brightness_var = ctk.IntVar(value=20)
 
         ctk.CTkSlider(
             self.control_frame,
-            from_=-80,
-            to=80,
+            from_=-100,
+            to=100,
             variable=self.brightness_var,
             command=self.on_slider_change
         ).pack(fill="x", pady=(5, 15))
 
         # Sättigung
-        ctk.CTkLabel(self.control_frame, text="Sättigung (Multiplikator)").pack(anchor="w")
+        ctk.CTkLabel(self.control_frame, text="Sättigung").pack(anchor="w")
         self.saturation_var = ctk.DoubleVar(value=1.2)
 
         ctk.CTkSlider(
@@ -111,24 +113,24 @@ class ImageApp(ctk.CTk):
         ).pack(fill="x", pady=(5, 10))
 
         # Live-Anzeige der Werte
-        self.params_label = ctk.CTkLabel(self.control_frame, text="Aktuell: Helligkeit = 20 | Sättigung = 1.20")
+        self.params_label = ctk.CTkLabel(self.control_frame, text="Aktuell: Helligkeit = 39 | Sättigung = 1.27")
         self.params_label.pack(pady=(0, 15), anchor="w")
 
         # Auto-Optimierung
         ctk.CTkButton(
             self.control_frame,
-            text="Auto-Optimierung (setzt Startwerte)",
+            text="Auto-Optimierung",
             command=self.apply_auto
         ).pack(pady=(0, 10), fill="x")
 
-        # Erklärungstext (kurz)
-        explanation = (
-            "Auto-Optimierung macht:\n"
-            "• brightness = 20  (macht das Bild heller)\n"
-            "• saturation = 1.20 (macht Farben kräftiger)\n"
-            "Danach wird die Vorschau neu berechnet."
-        )
-        ctk.CTkLabel(self.control_frame, text=explanation, justify="left", wraplength=280).pack(anchor="w", pady=(10, 0))
+        # Nullung
+        ctk.CTkButton(
+            self.control_frame,
+            text="Original",
+            command=self.apply_nullung
+        ).pack(pady=(0,10), fill="x")
+
+
 
         # --------------------------
         # RECHTER BEREICH (Bild)
@@ -154,23 +156,22 @@ class ImageApp(ctk.CTk):
 
         self.original_img = img
 
-        # Optional: beim Laden direkt Auto-Optimierung anwenden
-        # (wenn du das nicht willst: auskommentieren)
+        
         self.apply_auto()
 
     def apply_auto(self):
-        """
-        ✅ Auto-Optimierung = Regler auf feste Werte setzen + Vorschau aktualisieren
-        - brightness (Offset) wird addiert -> Bild wird heller/dunkler
-        - saturation multipliziert den HSV-S Kanal -> Farben kräftiger/schwächer
-        """
-        self.brightness_var.set(39)    # <-- AUTO-HELLIGKEIT (Standardwert)
-        self.saturation_var.set(1.27)   # <-- AUTO-SÄTTIGUNG (Standardwert)
+        self.brightness_var.set(39)    
+        self.saturation_var.set(1.27)   
 
-        # Debug (optional):
-        # print(f"[AUTO] brightness={self.brightness_var.get()} saturation={self.saturation_var.get():.2f}")
 
         self.update_preview()
+    
+    def apply_nullung(self):
+        self.brightness_var.set(0)
+        self.saturation_var.set(1.0)
+
+        self.update_preview()
+        
 
     def on_slider_change(self, _=None):
         self.update_preview()
