@@ -8,7 +8,7 @@ from PIL import Image
 
 
 # ==============================
-# DATENSTRUKTUR
+# 1 ) DATENSTRUKTUR
 # ==============================
 @dataclass
 class Params:
@@ -17,7 +17,7 @@ class Params:
 
 
 # ==============================
-# BILDBEARBEITUNG
+# 2 ) BILDBEARBEITUNG
 # ==============================
 def apply_brightness(img: np.ndarray, brightness: int) -> np.ndarray:
     """
@@ -53,7 +53,7 @@ def process_image(img: np.ndarray, params: Params) -> np.ndarray:
 
 
 # ==============================
-# GUI
+# 3 ) GUI
 # ==============================
 class ImageApp(ctk.CTk):
     def __init__(self):
@@ -133,13 +133,13 @@ class ImageApp(ctk.CTk):
 
 
         # --------------------------
-        # RECHTER BEREICH (Bild)
+        # 4 ) RECHTER BEREICH (Bild)
         # --------------------------
         self.image_label = ctk.CTkLabel(self, text="Kein Bild geladen")
         self.image_label.pack(side="right", expand=True, fill="both", padx=10, pady=10)
 
     # ==========================
-    # GUI Aktionen
+    # 5 ) GUI Aktionen
     # ==========================
     def load_image(self):
         path = filedialog.askopenfilename(
@@ -185,7 +185,7 @@ class ImageApp(ctk.CTk):
         if self.original_img is None:
             return
 
-        # ✅ Werte im GUI anzeigen
+        
         self.update_params_label()
 
         params = Params(
