@@ -1,7 +1,7 @@
 """
 Modul: augmentation.py
 Beschreibung:
-Dieses Skript führt eine einfache Datenaugmentation durch 
+Dieses Skript führt eine einfache Datenaugmentation durch
 (Rotation von Bilddaten um 0°, 90°, 180°, 270°) und speichert
 die Ergebnisse in einem Unterordner.
 
@@ -10,6 +10,7 @@ Projektname: visCell
 Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse
 von mikroskopischen Zellstrukturen.
 """
+
 # =========================
 # 1 ) Einbinden aller Bibliotheken
 # =========================
@@ -49,7 +50,7 @@ class augmentation(ctk.CTk):
         path = filedialog.askdirectory()
         if not path:
             return
-        threading.Thread(target=self.rotate, args=(path,), daemon=True).start()
+        threading.Thread(target=self.rotate, args=(path,), daemon=True).start() # Anwendung bleibt bedienbar
 
     # ===== Augmentation =====
     def rotate(self, source_folder):
@@ -57,13 +58,13 @@ class augmentation(ctk.CTk):
         os.makedirs(output_folder, exist_ok=True)
 
         # ===== Kompatibel Versionen =====
-        extensions = (".jpg", ".jpeg", ".png", ".bmp")
+        extensions = (".jpg", ".jpeg", ".png", ".bmp") # Erlaubte Dateiformate
         files = [f for f in os.listdir(source_folder) if f.lower().endswith(extensions)]
 
-        # ===== Quelle =====
+        # ===== Quelle: Ordner =====
         for filename in files:
             img = cv2.imread(os.path.join(source_folder, filename))
-            if img is None: # Kein Bild ausgewählt mit passender Endung
+            if img is None:  # Kein Bild ausgewählt mit passender Endung
                 continue
             name, ext = os.path.splitext(filename)
 
