@@ -15,8 +15,9 @@ Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-An
 von mikroskopischen Zellstrukturen.
 """
 
-from __future__ import annotations
-
+# =========================
+# 1 ) Einbinden aller Bibliotheken
+# =========================
 import json
 import threading
 from dataclasses import dataclass
@@ -28,6 +29,9 @@ import cv2
 import numpy as np
 
 
+# =========================
+# 2 ) Datentypen
+# =========================
 @dataclass(frozen=True)
 class BildInfo:
     pfad: Path
@@ -35,13 +39,20 @@ class BildInfo:
     hoehe: int
 
 
+# =========================
+# 3 ) Hauptschleife
+# =========================
 class Augmentation(ctk.CTk):
     def __init__(self):
         super().__init__()
+
+        # =========================
+        # 4 ) File-Handling
+        # =========================
         self.title("Skript Augmentation")
         self.geometry("520x320")
 
-        # ===== Projektpfade =====
+        # ===== Pfad zu labeled Rohbilder =====
         self.projekt_ordner = (
             Path(__file__).resolve().parents[1]
             if Path(__file__).resolve().parents[1].name == "visCell"
@@ -51,7 +62,7 @@ class Augmentation(ctk.CTk):
         self.ordner_labels = self.projekt_ordner / "data" / "labels_points"
         self.ordner_labels.mkdir(parents=True, exist_ok=True)
 
-        # ===== Button =====
+        # ===== GUI (Button) =====
         self.btn_select = ctk.CTkButton(
             self, text="Bilder auswählen & augmentieren", command=self.process
         )
@@ -60,6 +71,9 @@ class Augmentation(ctk.CTk):
         self.status_label = ctk.CTkLabel(self, text="Bereit", text_color="gray")
         self.status_label.pack(pady=14)
 
+    # =========================
+    # 5 ) Verarbeitung im Hintergrund
+    # =========================
     def process(self):
         start_ordner = (
             str(self.ordner_raw) if self.ordner_raw.exists() else str(Path.cwd())
@@ -67,7 +81,7 @@ class Augmentation(ctk.CTk):
         dateien = filedialog.askopenfilenames(
             title="Bilder auswählen",
             initialdir=start_ordner,
-            filetypes=[
+            filetypes=[  # Erlaubte Dateiformate
                 ("Bilder", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp"),
                 ("Alle Dateien", "*.*"),
             ],
@@ -77,10 +91,15 @@ class Augmentation(ctk.CTk):
             return
 
         bilder = [Path(p) for p in dateien]
+        # ===== Prozess wird im Hintergrund ausgeführt =====
         threading.Thread(target=self.augmentiere, args=(bilder,), daemon=True).start()
 
+    # =========================
+    # 6 ) Augmentation: Einstellungen
+    # =========================
     def augmentiere(self, bilder: list[Path]):
         try:
+            # ===== Pfad ok, Ordner vorhanden =====
             quell_ordner = bilder[0].parent
 
             ordner_bilder_aug = quell_ordner / "augmented"
@@ -89,15 +108,16 @@ class Augmentation(ctk.CTk):
             ordner_labels_aug = self.ordner_labels / "augmented"
             ordner_labels_aug.mkdir(parents=True, exist_ok=True)
 
+            # ===== Alle Bilder im Pfad laden =====
             for bild_pfad in bilder:
                 info, img = self._lade_bild(bild_pfad)
                 if info is None or img is None:
                     continue
 
-                label_daten = self._lade_label_json(bild_pfad.stem)
+                label_daten = self._lade_label_json(bild_pfad.stem) # lade JSON-Datei(n)
 
                 for rot in (0, 90, 180, 270):
-                    # 1) nur rotieren
+                    # 1) rotieren
                     self._speichere_variante(
                         info=info,
                         img=img,
@@ -124,7 +144,7 @@ class Augmentation(ctk.CTk):
             self._status(f"Fehler: {ex}", "red")
 
     # -------------------------
-    # Laden / Speichern
+    # 7 )  Laden / Speichern
     # -------------------------
     def _lade_bild(self, bild_pfad: Path) -> tuple[BildInfo | None, np.ndarray | None]:
         img = cv2.imread(str(bild_pfad))
@@ -134,6 +154,7 @@ class Augmentation(ctk.CTk):
         return BildInfo(pfad=bild_pfad, breite=w, hoehe=h), img
 
     def _lade_label_json(self, stem: str) -> dict | None:
+        # labelmaker speichert <stem>_points.json in data/labels_points
         pfad = self.ordner_labels / f"{stem}_points.json"
         if not pfad.exists():
             return None
@@ -156,15 +177,19 @@ class Augmentation(ctk.CTk):
         name = info.pfad.stem
         ext = info.pfad.suffix
 
-        img_aug, w_neu, h_neu = self._bild_transform(img, info.breite, info.hoehe, rot, flip_h)
+        img_aug, w_neu, h_neu = self._bild_transform(
+            img, info.breite, info.hoehe, rot, flip_h
+        )
 
+        # ===== Augmentierte Bilder erstellen =====
         suffix = f"{'_flipH' if flip_h else ''}_rot{rot:03d}"
         neuer_dateiname = f"{name}{suffix}{ext}"
         cv2.imwrite(str(ziel_ordner_bild / neuer_dateiname), img_aug)
 
-        if label_daten is None:
+        if label_daten is None: # Wenn JSON(s) vorhanden
             return
 
+        # ===== Neue JSON(s) erstellen =====
         neue_json = self._transformiere_label_json(
             label_daten=label_daten,
             w_alt=info.breite,
@@ -181,16 +206,16 @@ class Augmentation(ctk.CTk):
                 json.dumps(neue_json, indent=2, ensure_ascii=False), encoding="utf-8"
             )
         except Exception:
-            pass
+            pass # weiter
 
     # -------------------------
-    # Bild-Transformation
+    # 8 )  Augmentation: rotieren und spiegeln
     # -------------------------
     def _bild_rotieren_cw(
         self, img: np.ndarray, w: int, h: int, rot_cw: int
     ) -> tuple[np.ndarray, int, int]:
         rot_cw = rot_cw % 360
-        match rot_cw:
+        match rot_cw: # Drehungen
             case 0:
                 return img.copy(), w, h
             case 90:
@@ -210,9 +235,9 @@ class Augmentation(ctk.CTk):
             out = cv2.flip(out, 1)  # horizontal (links/rechts)
         return self._bild_rotieren_cw(out, w, h, rot_cw)
 
-    # -------------------------
-    # Label-Transformation (Punkte)
-    # -------------------------
+    # =========================
+    # 9 ) Label: Transformationen
+    # =========================
     def _transformiere_label_json(
         self,
         label_daten: dict,
@@ -259,34 +284,36 @@ class Augmentation(ctk.CTk):
             },
         }
 
+    # ===== Spiegeln vertikal =====
     def _punkt_flip_h(self, x: float, y: float, w: int) -> tuple[float, float]:
         return (w - 1) - x, y
-
+    
+    # ===== Rotieren CW =====
     def _punkt_rotieren_cw(
         self, x: float, y: float, w: int, h: int, rot_cw: int
     ) -> tuple[float, float]:
         rot_cw = rot_cw % 360
-        match rot_cw:
-            case 0:
+        match rot_cw: # CW = clockwise = Uhrzeigersinn
+            case 0:  # 0°: (x,y)
                 return x, y
-            case 90:
-                # (x,y) in W×H -> (H-1-y, x) in H×W
+            case 90:  # 90° CW
                 return (h - 1) - y, x
-            case 180:
+            case 180:  # 180° (CW)
                 return (w - 1) - x, (h - 1) - y
-            case 270:
-                # (x,y) -> (y, W-1-x) in H×W
+            case 270:  # 270° CW
                 return y, (w - 1) - x
             case _:
                 return x, y
-
-    # -------------------------
-    # Status
-    # -------------------------
-    def _status(self, text: str, farbe: str):
+            
+    # =========================
+    # 10 ) Status
+    # =========================
+    def _status(self, text: str, farbe: str): # Update GUI
         self.after(0, lambda: self.status_label.configure(text=text, text_color=farbe))
 
-
+# =========================
+# 11 ) Start der Anwendung
+# =========================
 if __name__ == "__main__":
     app = Augmentation()
     app.mainloop()
