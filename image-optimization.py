@@ -1,3 +1,14 @@
+"""
+Modul: image-optimization.py
+Beschreibung:
+Dieses Skript ist führt eine automatische Bearebitung des hochgeladenen Bildes hoch und bietet die Möglichkeit einer individuellen Bearbeitung durch den Anwender
+
+Autor: Sven Klapp
+Projektname: visCell
+Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse
+von mikroskopischen Zellstrukturen.
+"""
+
 import customtkinter as ctk
 from tkinter import filedialog
 from dataclasses import dataclass
@@ -12,7 +23,7 @@ from PIL import Image
 # ==============================
 @dataclass
 class Params:
-    brightness: int       #
+    brightness: int       
     saturation: float     
 
 
@@ -116,12 +127,12 @@ class ImageApp(ctk.CTk):
             command=self.apply_nullung
         ).pack(pady=(0,10), fill="x")
 
-
         # --------------------------
         # 4 ) RECHTER BEREICH (Bild)
         # --------------------------
         self.image_label = ctk.CTkLabel(self, text="Kein Bild geladen")
         self.image_label.pack(side="right", expand=True, fill="both", padx=10, pady=10)
+
 
     # ==========================
     # 5 ) GUI Aktionen
@@ -199,6 +210,7 @@ class ImageApp(ctk.CTk):
         
         self.ctk_image = ctk.CTkImage(light_image=pil_img, size=pil_img.size)
         self.image_label.configure(image=self.ctk_image, text="")
+
 
 # ==============================
 # START
