@@ -112,24 +112,21 @@ class ImageApp(ctk.CTk):
             command=self.on_slider_change
         ).pack(fill="x", pady=(5, 10))
 
-        # Live-Anzeige der Werte
+        # ==== Live-Anzeige der Werte
         self.params_label = ctk.CTkLabel(self.control_frame, text="Aktuell: Helligkeit = 39 | Sättigung = 1.27")
         self.params_label.pack(pady=(0, 15), anchor="w")
 
-        # Auto-Optimierung
         ctk.CTkButton(
             self.control_frame,
             text="Auto-Optimierung",
             command=self.apply_auto
         ).pack(pady=(0, 10), fill="x")
 
-        # Nullung
         ctk.CTkButton(
             self.control_frame,
             text="Original",
             command=self.apply_nullung
         ).pack(pady=(0,10), fill="x")
-
 
 
         # --------------------------
@@ -148,7 +145,7 @@ class ImageApp(ctk.CTk):
         )
         if not path:
             return
-
+    # ===== Ausgangslage =====
         img = cv2.imread(path)
         if img is None:
             self.image_label.configure(text="Bild konnte nicht geladen werden.", image=None)
@@ -159,13 +156,15 @@ class ImageApp(ctk.CTk):
         
         self.apply_auto()
 
+# ===== Auto-Optimierung =====
     def apply_auto(self):
         self.brightness_var.set(39)    
         self.saturation_var.set(1.27)   
 
 
         self.update_preview()
-    
+
+# ===== Original =====
     def apply_nullung(self):
         self.brightness_var.set(0)
         self.saturation_var.set(1.0)
@@ -176,6 +175,7 @@ class ImageApp(ctk.CTk):
     def on_slider_change(self, _=None):
         self.update_preview()
 
+# ===== Akutelle Anzeige =====
     def update_params_label(self):
         b = int(self.brightness_var.get())
         s = float(self.saturation_var.get())
@@ -208,7 +208,7 @@ class ImageApp(ctk.CTk):
 
         pil_img = Image.fromarray(rgb)
 
-        # CustomTkinter Image muss gespeichert werden (sonst verschwindet es)
+        
         self.ctk_image = ctk.CTkImage(light_image=pil_img, size=pil_img.size)
         self.image_label.configure(image=self.ctk_image, text="")
 
