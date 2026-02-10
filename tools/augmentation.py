@@ -91,7 +91,7 @@ class Augmentation(ctk.CTk):
         threading.Thread(target=self.augmentiere, args=(bilder,), daemon=True).start()
 
     # =========================
-    # 6 ) Augmentation (Rotation + Spiegelung)
+    # 6 ) Augmentation: Einstellungen
     # =========================
     def augmentiere(self, bilder: list[Path]):
         try:
@@ -215,7 +215,7 @@ class Augmentation(ctk.CTk):
             pass  # weiter
 
     # =========================
-    # 8 ) Bild-Transformationen
+    # 8 ) Augmentation: rotieren und spiegeln
     # =========================
     def _bild_rotieren(
         self, img: np.ndarray, w: int, h: int, rot_cw: int
@@ -240,7 +240,7 @@ class Augmentation(ctk.CTk):
         return self._bild_rotieren(gespiegelt, w, h, rot_cw)  # dann spiegeln
 
     # =========================
-    # 9 ) Label-Transformationen
+    # 9 ) Label: Transformationen
     # =========================
     def _transformiere_label_json(
         self,
