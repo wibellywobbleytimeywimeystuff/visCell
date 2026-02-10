@@ -24,54 +24,59 @@ import numpy as np
 import cv2
 
 
-# ===================================
-# 2 ) Farbschema und Erscheinungsbild
-# ===================================
-
-
-appearance = "dark"
-ctk.set_appearance_mode(appearance)
-ctk.set_default_color_theme("blue")
-
-# ===================================
-# 3 ) Hauptschleife und GUI-Struktur
- # ==================================
+# =========================
+# # 3 ) Hauptschleife
+# =========================
 class App(ctk.CTk):
-        
+
+
+    # =========================
+    # 3 ) Grundeinstellungen
+    # =========================
     def __init__(self):
         super().__init__()
-    
-        # =========================
-        # 3 ) GUI-Grundstruktur
-        # =========================
-        
-        
-        self.title("visCell")
-        self.geometry("1400x800")
 
-        # =========================
-        # 3 ) Unten Footer
-        # =========================
-        
-        
+        ctk.set_default_color_theme("blue")
+        self.title("Darkmode/lightmode")
+        self.geometry("1440x980")
+
+        self.appearance = "dark"
+        self.colormode_text = "Hellmodus"
+        ctk.set_appearance_mode(self.appearance)
+
+        self._build_footer()  # Button darstellen
+
+    # =========================
+    # 3 ) Farbwechsel
+    # =========================
+    def _switchcolor(self):
+        if self.appearance == "light":
+            self.colormode_text = "Hellmodus"
+            self.appearance = "dark"
+        else:
+            self.colormode_text = "Dunkelmodus"
+            self.appearance = "light"
+
+        ctk.set_appearance_mode(self.appearance)
+        self.darkmode_btn.configure(text=self.colormode_text)
+
+    # =========================
+    # 4 ) GUI-Darstellung
+    # =========================
+    def _build_footer(self):
         footer = ctk.CTkFrame(self, height=30)
         footer.pack(fill="x", side="bottom")
 
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+        # ===== Button Farbwechsel =====
+        self.darkmode_btn = ctk.CTkButton(
+            footer,
+            text=self.colormode_text,
+            command=self._switchcolor,
+            width=110,
+        )
+        self.darkmode_btn.pack(side="right", padx=5, pady=5)
+
+
         # =========================
         #  ) Metadaten ändern Popup
         # =========================
