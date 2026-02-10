@@ -28,6 +28,10 @@ import customtkinter as ctk
 import cv2
 import numpy as np
 
+# Fenstergröße GUI
+width = 520
+height = 300
+
 
 # =========================
 # 2 ) Datentypen
@@ -49,8 +53,8 @@ class Augmentation(ctk.CTk):
         # =========================
         # 4 ) File-Handling
         # =========================
-        self.title("Skript Augmentation")
-        self.geometry("520x320")
+        # ===== GUI: Fenster =====
+        self.title("Rohbilder-Augmentation")
 
         # ===== Pfad zu labeled Rohbilder =====
         self.projekt_ordner = (
@@ -62,24 +66,46 @@ class Augmentation(ctk.CTk):
         self.ordner_labels = self.projekt_ordner / "data" / "labels_points"
         self.ordner_labels.mkdir(parents=True, exist_ok=True)
 
-        # ===== GUI (Button) =====
-        self.btn_select = ctk.CTkButton(
-            self, text="Bilder auswählen & augmentieren", command=self.process
-        )
-        self.btn_select.pack(pady=90)
+        # ===== GUI: Button =====
+        self.btn_select = ctk.CTkButton(self, text="Datein laden", command=self.process)
+        self.btn_select.pack(pady=50)
 
-        self.status_label = ctk.CTkLabel(self, text="Bereit", text_color="gray")
-        self.status_label.pack(pady=14)
+        self.status_label = ctk.CTkLabel(self, text="Bereit", text_color="#006EFF")
+        self.status_label.pack(pady=10)
+
+        # ==========================================
+        # PROGRESSBAR
+        # ==========================================
+        # Erst ab Augmentation sichtbar
+        self.progress_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.progress_frame.pack(pady=10)
+        self.progress_frame.pack_forget()  # <- unsichtbar
+
+        # ===== GUI: Fortschrittsbalken =====
+        self.progress = ctk.CTkProgressBar(
+            self.progress_frame,
+            width=300,
+            height=16,
+        )
+        self.progress.pack(pady=6)
+        self.progress.set(0)
+
+        self.progress_text = ctk.CTkLabel(
+            self.progress_frame,
+            text="0 %",
+            font=ctk.CTkFont(size=16, weight="bold"),  # fetter
+        )
+        self.progress_text.pack()
 
     # =========================
-    # 5 ) Verarbeitung im Hintergrund
+    # 5 ) Processing im Hintergrund
     # =========================
     def process(self):
         start_ordner = (
             str(self.ordner_raw) if self.ordner_raw.exists() else str(Path.cwd())
         )
         dateien = filedialog.askopenfilenames(
-            title="Bilder auswählen",
+            title="Bitte alle Bilder auswählen [STRG+A]",
             initialdir=start_ordner,
             filetypes=[  # Erlaubte Dateiformate
                 ("Bilder", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp"),
@@ -87,11 +113,17 @@ class Augmentation(ctk.CTk):
             ],
         )
         if not dateien:
-            self._status("Keine Auswahl.", "gray")
+            self._status("Es wurden keine passenden Datein gefunden.", "#EEAA11")
             return
 
         bilder = [Path(p) for p in dateien]
+
+        # ===== Progressbar zeichnen =====
+        self.after(0, self._show_progress)
+        self._status("Starte Augmentation…", "#006EFF")
+
         # ===== Prozess wird im Hintergrund ausgeführt =====
+        # (GUI bleibt responsive; die eigentliche Arbeit läuft im Thread)
         threading.Thread(target=self.augmentiere, args=(bilder,), daemon=True).start()
 
     # =========================
@@ -107,8 +139,15 @@ class Augmentation(ctk.CTk):
             ordner_labels_aug = self.ordner_labels / "augmented"
             ordner_labels_aug.mkdir(parents=True, exist_ok=True)
 
+            # ===== Progress: 8 Varianten pro Bild =====
+            gesamt = len(bilder) * 8
+            progress_count = 0
+            self._update_progress(0, max(1, gesamt))
+
             # ===== Alle Bilder im Pfad laden =====
             for bild_pfad in bilder:
+                self._status(f"Verarbeite: {bild_pfad.name}", "#006EFF")
+
                 info, img = self._lade_bild(bild_pfad)
                 if info is None or img is None:
                     continue  # skip wenn nichts geladen
@@ -127,6 +166,9 @@ class Augmentation(ctk.CTk):
                         rot=rot,
                         flip_h=False,  # nicht spiegeln
                     )
+                    progress_count += 1
+                    self._update_progress(progress_count, gesamt)
+
                     # 2) Gedrehte Bilder spiegeln
                     self._speichere_variante(
                         info=info,
@@ -137,6 +179,10 @@ class Augmentation(ctk.CTk):
                         rot=rot,
                         flip_h=True,  # spiegeln
                     )
+                    progress_count += 1
+                    self._update_progress(progress_count, gesamt)
+
+            self._update_progress(gesamt, gesamt)
 
             # ===== Fertigmeldung =====
             self._status("Fertig! 8 Varianten pro Bild in 'augmented'.", "green")
@@ -144,12 +190,12 @@ class Augmentation(ctk.CTk):
         # ===== Fehlermeldung =====
         except Exception as ex:
             self._status(f"Fehler: {ex}", "red")
-
+            print(ex)
     # -------------------------
     # 7 )  Laden / Speichern
     # -------------------------
 
-    # ===== Laden =====
+    # ===== Laden: Bilder =====
     def _lade_bild(self, bild_pfad: Path) -> tuple[BildInfo | None, np.ndarray | None]:
         img = cv2.imread(str(bild_pfad))
         if img is None:
@@ -157,6 +203,7 @@ class Augmentation(ctk.CTk):
         h, w = img.shape[:2]
         return BildInfo(pfad=bild_pfad, breite=w, hoehe=h), img
 
+    # ===== Laden: JSON =====
     def _lade_label_json(
         self, stem: str
     ) -> dict | None:  # labelmaker speichert <stem>_points.json in data/labels_points
@@ -189,7 +236,7 @@ class Augmentation(ctk.CTk):
 
         # ===== Augmentierte Bilder schreiben =====
         suffix = f"{'_flipH' if flip_h else ''}_rot{rot:03d}"
-        neuer_dateiname = f"{name}{suffix}{ext}"
+        neuer_dateiname = f"{name}{suffix}{ext}"  # JSON Dateiname
         cv2.imwrite(str(ziel_ordner_bild / neuer_dateiname), img_aug)
 
         if label_daten is None:
@@ -206,6 +253,7 @@ class Augmentation(ctk.CTk):
             flip_h=flip_h,
             neuer_bildname=neuer_dateiname,
         )
+
         ziel_json = ziel_ordner_label / f"{name}{suffix}_points.json"
         try:
             ziel_json.write_text(
@@ -258,7 +306,7 @@ class Augmentation(ctk.CTk):
     ) -> dict:
         rot = rot % 360
 
-        # ===== Spiegelung Punkte =====
+        # ===== Spiegelung der Punkte =====
         punkte_alt = label_daten.get("points", [])
         punkte_neu: list[dict] = []
 
@@ -270,12 +318,10 @@ class Augmentation(ctk.CTk):
             except Exception:
                 continue
 
-            # Reihenfolge muss dem Bild entsprechen:
-            # erst flip, dann rotation
-            if flip_h:
+            if flip_h:  # Spiegeln
                 x, y = self._punkt_flip_h(x, y, w_alt)
 
-            x, y = self._punkt_rotieren_cw(x, y, w_alt, h_alt, rot)
+            x, y = self._punkt_rotieren_cw(x, y, w_alt, h_alt, rot)  # Rotieren
 
             punkte_neu.append({"x": round(x, 3), "y": round(y, 3), "class": klasse})
 
@@ -293,7 +339,7 @@ class Augmentation(ctk.CTk):
         }
 
     # ===== Augmentation =====
-    # ===== Spiegeln vertikal =====
+    # ===== Spiegeln horizontal =====
     def _punkt_flip_h(self, x: float, y: float, w: int) -> tuple[float, float]:
         return (w - 1) - x, y
 
@@ -315,10 +361,25 @@ class Augmentation(ctk.CTk):
                 return x, y
 
     # =========================
-    # 10 ) Statusmeldung
+    # 10 ) Statusmeldung / GUI Updates
     # =========================
     def _status(self, text: str, farbe: str):  # Update GUI
         self.after(0, lambda: self.status_label.configure(text=text, text_color=farbe))
+
+    def _update_progress(self, count: int, total: int):
+        total = max(1, int(total))
+        percent = max(0, min(count / total, 1))
+
+        def gui_update():
+            self.progress.set(percent)
+            self.progress_text.configure(text=f"{int(percent * 100)} %")
+
+        self.after(0, gui_update)
+
+    def _show_progress(self):
+        self.progress.set(0)
+        self.progress_text.configure(text="0 %")
+        self.progress_frame.pack(pady=10)
 
 
 # =========================
@@ -326,4 +387,14 @@ class Augmentation(ctk.CTk):
 # =========================
 if __name__ == "__main__":
     app = Augmentation()
+
+    # ===== Öffnet Fenster zentriert =====
+    screen_width = app.winfo_screenwidth()
+    screen_height = app.winfo_screenheight()
+
+    # Verschiebt die Mitte des Monitors um die 1/2 der Fensterbreite
+    x = int((screen_width / 2) - (width / 2))
+    y = int((screen_height / 2) - (height / 2))
+    app.geometry(f"{width}x{height}+{x}+{y}")
+
     app.mainloop()
