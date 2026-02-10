@@ -12,30 +12,20 @@ from PIL import Image
 # ==============================
 @dataclass
 class Params:
-    brightness: int       # Helligkeit (Offset, wird addiert)
-    saturation: float     # Sättigung (Multiplikator im HSV-S Kanal)
+    brightness: int       #
+    saturation: float     
 
 
 # ==============================
 # 2 ) BILDBEARBEITUNG
 # ==============================
 def apply_brightness(img: np.ndarray, brightness: int) -> np.ndarray:
-    """
-    Helligkeit:
-    OpenCV nutzt konzeptionell: neues_pixel = 1.0 * altes_pixel + brightness
-    -> brightness (beta) ist ein Offset, der auf jeden Pixel addiert wird.
-    """
+    
     return cv2.convertScaleAbs(img, alpha=1.0, beta=brightness)
 
 
 def apply_saturation(img: np.ndarray, saturation: float) -> np.ndarray:
-    """
-    Sättigung:
-    - Bild in HSV umwandeln
-    - S-Kanal (Index 1) multiplizieren
-    - auf 0..255 begrenzen
-    - zurück nach BGR
-    """
+  
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.float32)
     hsv[:, :, 1] *= saturation
     hsv[:, :, 1] = np.clip(hsv[:, :, 1], 0, 255)
@@ -44,9 +34,7 @@ def apply_saturation(img: np.ndarray, saturation: float) -> np.ndarray:
 
 
 def process_image(img: np.ndarray, params: Params) -> np.ndarray:
-    """
-    Pipeline: Helligkeit -> Sättigung
-    """
+   
     img = apply_brightness(img, params.brightness)
     img = apply_saturation(img, params.saturation)
     return img
@@ -88,7 +76,7 @@ class ImageApp(ctk.CTk):
             command=self.load_image
         ).pack(pady=(0, 15), fill="x")
 
-        # Helligkeit
+        # ===== Helligkeit-Button =====
         ctk.CTkLabel(self.control_frame, text="Helligkeit").pack(anchor="w")
         self.brightness_var = ctk.IntVar(value=20)
 
@@ -100,7 +88,7 @@ class ImageApp(ctk.CTk):
             command=self.on_slider_change
         ).pack(fill="x", pady=(5, 15))
 
-        # Sättigung
+        # ===== Sättigung-Button =====
         ctk.CTkLabel(self.control_frame, text="Sättigung").pack(anchor="w")
         self.saturation_var = ctk.DoubleVar(value=1.2)
 
@@ -112,7 +100,7 @@ class ImageApp(ctk.CTk):
             command=self.on_slider_change
         ).pack(fill="x", pady=(5, 10))
 
-        # ==== Live-Anzeige der Werte
+        # ==== Live-Anzeige der Werte =====
         self.params_label = ctk.CTkLabel(self.control_frame, text="Aktuell: Helligkeit = 39 | Sättigung = 1.27")
         self.params_label.pack(pady=(0, 15), anchor="w")
 
@@ -211,7 +199,6 @@ class ImageApp(ctk.CTk):
         
         self.ctk_image = ctk.CTkImage(light_image=pil_img, size=pil_img.size)
         self.image_label.configure(image=self.ctk_image, text="")
-
 
 # ==============================
 # START
