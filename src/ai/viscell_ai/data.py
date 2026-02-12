@@ -1,7 +1,6 @@
-"""
-Modul: data.py
+"""Modul: data.py
 Beschreibung:
-Dieses Skript bereitet Bild- und Eingabedaten für die nachgelagerte KI-Analyse auf.
+Dieses Skript lädt Punkt-Labels, liest Bilder ein, zerlegt Bilder in Tiles und erzeugt daraus Trainingsdaten sowie Ziel-Heatmaps und Masken.
 
 Autor: Marlon Aust
 Projektname: visCell
@@ -10,13 +9,9 @@ von mikroskopischen Zellstrukturen.
 """
 
 # =========================
-# 1 ) Einbinden der Bildverarbeitung
+# 1 ) Einbinden der Bibliotheken
 # =========================
-
 from __future__ import annotations
-
-
-
 
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -27,13 +22,10 @@ import numpy as np
 from .config import CLASSES, TileSpec
 
 
-
 # =========================
 # 2 ) Import und Laden
 # =========================
-
 def load_points_json(json_path: Path) -> Tuple[str, List[dict]]:
-    
     import json as _json
 
     obj = _json.loads(json_path.read_text(encoding="utf-8"))
@@ -41,26 +33,27 @@ def load_points_json(json_path: Path) -> Tuple[str, List[dict]]:
 
 
 # =========================
-# 3 ) List Label Jsons
+# 3 ) Labels: listen
 # =========================
-
 def list_label_jsons(labels_dir: Path) -> List[Path]:
-    
-    return sorted([p for p in labels_dir.glob("*_points.json") if p.is_file()])
-
+    return sorted(
+        [p for p in labels_dir.glob("*_points.json") if p.is_file()]
+    )  # Sortiert alle labels
 
 
 # =========================
-# 4 ) Iter Tiles
+# 4 ) Tiles: Einteilung
 # =========================
-
 def _iter_tiles(image_width: int, image_height: int, tile_spec: TileSpec):
-    
     step_x_pixels = tile_spec.tile_w - tile_spec.overlap
     step_y_pixels = tile_spec.tile_h - tile_spec.overlap
 
-    x_positions = list(range(0, max(image_width - tile_spec.tile_w, 0) + 1, step_x_pixels)) or [0]
-    y_positions = list(range(0, max(image_height - tile_spec.tile_h, 0) + 1, step_y_pixels)) or [0]
+    x_positions = list(
+        range(0, max(image_width - tile_spec.tile_w, 0) + 1, step_x_pixels)
+    ) or [0]
+    y_positions = list(
+        range(0, max(image_height - tile_spec.tile_h, 0) + 1, step_y_pixels)
+    ) or [0]
 
     if x_positions[-1] != max(image_width - tile_spec.tile_w, 0):
         x_positions.append(max(image_width - tile_spec.tile_w, 0))
@@ -73,11 +66,13 @@ def _iter_tiles(image_width: int, image_height: int, tile_spec: TileSpec):
 
 
 # =========================
-# 5 ) Points In Tile
+# 5 ) Tiles: Liste aus Punkte
 # =========================
+# Filtert label-Punkte im Tile und gibt sie als Liste zurück
+def _points_in_tile(
+    points: List[dict], x0: int, y0: int, x1: int, y1: int
+) -> List[dict]:
 
-def _points_in_tile(points: List[dict], x0: int, y0: int, x1: int, y1: int) -> List[dict]:
-    
     tile_points: List[dict] = []
     for p in points:
         x, y = float(p.get("x", 0)), float(p.get("y", 0))
@@ -87,11 +82,13 @@ def _points_in_tile(points: List[dict], x0: int, y0: int, x1: int, y1: int) -> L
 
 
 # =========================
-# 6 ) Tile Image And
+# 6 ) Tile: Zuordnung
 # =========================
+# Zuordnung der Tiles zu passenden Label-Punkten
+def tile_image_and_points(
+    image_bgr: np.ndarray, points: List[dict], tile_spec: TileSpec
+):
 
-def tile_image_and_points(image_bgr: np.ndarray, points: List[dict], tile_spec: TileSpec):
-    
     image_height, image_width = image_bgr.shape[:2]
     tiles = []
     for x0, y0, x1, y1 in _iter_tiles(image_width, image_height, tile_spec):
@@ -101,38 +98,33 @@ def tile_image_and_points(image_bgr: np.ndarray, points: List[dict], tile_spec: 
     return tiles
 
 
-
 # =========================
-# 7 ) Datenvorverarbeitung
+# 7 ) Tile: Datenvorverarbeitung KI
 # =========================
-
 def preprocess_image_bgr(image_bgr: np.ndarray) -> np.ndarray:
-    
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    return (image_rgb.astype(np.float32) / 255.0)
-
+    return image_rgb.astype(np.float32) / 255.0
 
 
 # =========================
 # 8 ) Zählung
 # =========================
-
+# Zählt Zellen pro Klasse (für Batch-lernen)
 def image_cell_count(points: List[dict]) -> int:
-    
     return int(len(points))
 
 
 # =========================
-# 9 ) Generate Targets
+# 9 ) KI: Zellzentren, gültige Bereiche
 # =========================
-
 def generate_targets(
     tile_shape_hw: tuple[int, int],
     tile_points: List[dict],
     sigma_px: Dict[str, float],
     blob_r: Dict[str, int],
 ):
-    
+    # ===== Trainings-Targets ===== 
+    # --> Heatmaps der Zellzentren (pro Klasse) und eine Maske
     tile_h, tile_w = tile_shape_hw
 
     centers = np.zeros((tile_h, tile_w, len(CLASSES)), dtype=np.float32)

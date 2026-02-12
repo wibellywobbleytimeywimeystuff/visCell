@@ -1,7 +1,6 @@
-"""
-Modul: losses.py
+"""Modul: losses.py
 Beschreibung:
-Dieses Skript enthält Kernlogik zur Ausführung und Orchestrierung der Analysepipeline.
+Dieses Skript stellt spezielle Verlustfunktionen (Fehlerberechnung) für das Training bereit, zur robusten Optimierung bei viel Hintergrund, wenige Zellzentren
 
 Autor: Marlon Aust
 Projektname: visCell
@@ -10,22 +9,18 @@ von mikroskopischen Zellstrukturen.
 """
 
 # =========================
-# 1 ) Einbinden der KI-Bibliotheken
+# 1 ) Einbinden der Bibliotheken
 # =========================
-
 from __future__ import annotations
-
-
 
 import tensorflow as tf
 
 
 # =========================
-# 2 ) Focal Bce
+# 2 ) Vorhersage: Fehlerreduktion
 # =========================
-
+# Berechnung der Losses (Fehler) der Vorhersage
 def focal_bce(gamma: float = 2.0, alpha: float = 0.25):
-    
 
     def _loss(ground_truth, prediction):
         ground_truth = tf.cast(ground_truth, tf.float32)

@@ -1,7 +1,7 @@
-"""
-Modul: config.py
+"""Modul: config.py
 Beschreibung:
-Dieses Skript enthält Konfigurationslogik und Standardparameter der Anwendung.
+Dieses Skript legt die zentralen Konfigurationsklassen und Standardparameter für
+Training und Inferenz (z.B. Tile-Größe, Batch-Size, Lernrate und Klassenbezeichnungen) fest
 
 Autor: Marlon Aust
 Projektname: visCell
@@ -14,49 +14,40 @@ von mikroskopischen Zellstrukturen.
 # =========================
 
 from __future__ import annotations
-
-
-
-
 from dataclasses import dataclass
 
 CLASSES = ("ery", "hefe", "leuko")
 
 
-
-@dataclass(frozen=True)
 # =========================
 # 2 ) Klasse TileSpec
 # =========================
-
+@dataclass(frozen=True)
 class TileSpec:
-    
 
     tile_w: int = 1024
     tile_h: int = 1024
 
-    overlap: int = 128
+    overlap: int = 128  # px
 
     safe_margin: int = 64
 
 
-
-@dataclass
 # =========================
 # 3 ) Klasse Config
 # =========================
-
+@dataclass
 class Config:
-    
-
     data_root: str = "data"
 
     tile: TileSpec = TileSpec()
 
+    # Glockenförmige Verteilung um das Zentrum (center-heatmap)
     sigma_px_ery: float = 6.0
     sigma_px_hefe: float = 7.0
     sigma_px_leuko: float = 8.0
 
+    # blob = Radius um Zellmarker (jsons) für Zellzentrum
     blob_r_ery: int = 10
     blob_r_hefe: int = 12
     blob_r_leuko: int = 14
@@ -64,6 +55,7 @@ class Config:
     a_max: int = 350
     b_max: int = 1200
 
+    # Einstellungen: trainieren
     batch_size: int = 2
     steps_per_epoch: int = 200
     val_steps: int = 40

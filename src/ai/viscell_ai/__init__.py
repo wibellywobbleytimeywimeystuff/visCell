@@ -1,7 +1,6 @@
-"""
-Modul: __init__.py
+"""Modul: __init__.py
 Beschreibung:
-Dieses Skript implementiert Datei- und Projektoperationen für Import, Export und Ablage von Ergebnissen.
+Dieses Skript bündelt zentrale Funktionen und Klassen des Pakets, sodass sie über das Paket importiert werden können.
 
 Autor: Marlon Aust
 Projektname: visCell
@@ -9,10 +8,10 @@ Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-An
 von mikroskopischen Zellstrukturen.
 """
 
+
 # =========================
 # 1 ) Einbinden der Bibliotheken
 # =========================
-
 from .config import Config, TileSpec, CLASSES
 from .model import build_unet
 from .counting import count_from_maps, safe_crop_maps, CountParams

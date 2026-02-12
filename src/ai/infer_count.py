@@ -114,8 +114,8 @@ def run_inference(image_path: Path, model_path: Path, config: Config):
 # =========================
 # 4 ) Start: cmd-Interface
 # =========================
+# Erlaubt training über die Eingabeaufforderung (cmd)
 def main():
-    # ===== Argumente für den Aufruf per CMD =====
     # python infer_count.py --image data/raw/img.png --model output/run/model_best.keras
     parser = argparse.ArgumentParser(
         description="visCell AI: Inferenz + Zählung auf einem Bild"
