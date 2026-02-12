@@ -1,0 +1,5 @@
+Trainieren
+python src/ai/train.py --data_root data --out runs/run_full --steps 300
+
+Analysieren
+python src/ai/infer_count.py --model runs/run_full/model.keras --image data/raw/ery_001.jpeg
