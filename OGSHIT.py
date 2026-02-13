@@ -208,9 +208,13 @@ class App(ctk.CTk):
             pass
 
     def _show_overlay_text(self, text: str):
-        self.video_text.configure(text=text)
-        text_color="black"
+        self.video_text.configure(
+            text=text,
+            text_color=("black", "black")  # tuple = sicher für hell + dunkel
+    )
         self.video_text.place(relx=0.5, rely=0.5, anchor="center")
+        self.video_text.lift()  # ganz wichtig: nach vorne holen
+
 
     def _clear_video_label(self):
         # >>> HIER ist der entscheidende Fix: grauer Hintergrund wenn kein Bild <<<
@@ -329,7 +333,7 @@ class App(ctk.CTk):
                 self._tk_img = ImageTk.PhotoImage(pil_img)
                 self.video_label.configure(image=self._tk_img)
                 self.video_label.image = self._tk_img
-                self.video_label.lift()
+                #self.video_label.lift()
 
         except Exception as e:
             print("Fehler im Live-Loop:", e)
