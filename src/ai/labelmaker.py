@@ -13,19 +13,22 @@ Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-An
 von mikroskopischen Zellstrukturen.
 """
 
+# =========================
+# 1 ) Einbinden der Bibliotheken
+# =========================
 import json
 from pathlib import Path
 
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox  # Windows PopUp
 from PIL import Image, ImageTk
 
 
 # =========================
-# 1 ) Grundeinstellungen
+# 2 ) Grundeinstellungen
 # =========================
-# Klassen, die wir markieren können
+# Klassen, die markiert werden können
 KLASSEN = ["ery", "leuko", "hefe"]
 KLASSEN_TEXT = {
     "ery": "Erythrozyt",
@@ -33,29 +36,22 @@ KLASSEN_TEXT = {
     "hefe": "Hefe",
 }
 
-# Farben nur zur Anzeige (hat keine Auswirkung auf die JSON)
-FARBEN = {
+FARBEN = {  # Farbzuordnung
     "ery": "#ff4d4d",
     "leuko": "#4da6ff",
     "hefe": "#ffd24d",
 }
 
-# Marker-Größe (wie groß der Punkt gezeichnet wird)
-PUNKT_RADIUS = 6
-
-# Wie nah muss man klicken, um einen Punkt zu löschen? (in Bildschirm-Pixel)
-LOESCH_RADIUS_SCREEN = 12
-
-# Klick vs. Drag: Wenn die Maus weiter als diese Pixel bewegt wird, gilt es als "Ziehen"
-DRAG_SCHWELLE = 5
+PUNKT_RADIUS = 6  # Marker-Größe
+LOESCH_RADIUS_SCREEN = 12  # Marker-Größe zum Löschen
+DRAG_SCHWELLE = 5  # Threshold klicken vs. ziehen (Mausbewegung)
 
 
 # =========================
-# 2 ) Hilfsfunktionen
+# 3 ) Hilfsfunktionen
 # =========================
 def ist_bilddatei(datei: Path) -> bool:
-    # Erlaubte Dateiformate (wenn ihr was braucht, einfach ergänzen)
-    return datei.suffix.lower() in [
+    return datei.suffix.lower() in [  # Erlaubte Dateiformate
         ".png",
         ".jpg",
         ".jpeg",
@@ -66,29 +62,26 @@ def ist_bilddatei(datei: Path) -> bool:
     ]
 
 
+# ===== Zoom-Begrenzung =====
 def begrenze(wert: float, min_wert: float, max_wert: float) -> float:
-    # Verhindert, dass Zoom zu klein oder zu groß wird
     return max(min_wert, min(max_wert, wert))
 
 
 # =========================
-# 3 ) GUI (CustomTkinter)
+# 4 ) GUI: Grundeinstellungen
 # =========================
 class LabelMaker(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        # -------------------------
-        # Fenster
-        # -------------------------
+        # ===== Fenster erstellen =====
         self.title("visCell – Labelmaker v2 (einfach)")
-        self.geometry("1200x760")
-        self.minsize(1000, 650)
+        self.geometry("1280x720")  # Standard HD-Auflösung
+        self.maxsize(1920, 1080)  # Fenster Maximalgröße
+        self.minsize(1000, 600)  # Fenster Mindestgröße
 
-        # -------------------------
-        # Projektpfade
-        # -------------------------
-        # Annahme: Skript liegt im Projekt (z.B. tools/ oder direkt im Projektordner)
+        # ===== Pfade =====
+        # Annahme: Skript liegt im gleichen Ordner
         self.projekt_ordner = (
             Path(__file__).resolve().parents[1]
             if (Path(__file__).resolve().parents[1].name == "visCell")
@@ -98,51 +91,42 @@ class LabelMaker(ctk.CTk):
         self.ordner_labels = self.projekt_ordner / "data" / "labels_points"
         self.ordner_labels.mkdir(parents=True, exist_ok=True)
 
-        # -------------------------
-        # Zustand: Bilder / Punkte
-        # -------------------------
-        self.bilder_liste = []  # Liste mit Bildpfaden
-        self.bild_index = 0  # aktuelles Bild (Index in der Liste)
+        # ===== Zustände setzen =====
+        self.bilder_liste = []
+        self.bild_index = 0  # aktuelles Bild
         self.aktuelle_klasse = "ery"
 
-        # Punkte-Liste: {"x": float, "y": float, "class": str}
-        self.punkte = []
+        self.punkte = []  # {"x": float, "y": float, "class": str}
 
-        # Aktuelles Bild (PIL) + Anzeige (Tk)
-        self.bild_pil = None
-        self.bild_tk = None
+        self.bild_pil = None  # Aktuelles Bild
+        self.bild_tk = None  # Anzeige (Tk)
 
-        # -------------------------
-        # Zoom & Verschieben (Pan)
-        # -------------------------
+        # ===== Zoom & ziehen =====
         self.zoom = 1.0
         self.zoom_min = 0.2
         self.zoom_max = 8.0
         self.verschiebung_x = 0.0
         self.verschiebung_y = 0.0
 
-        self._maus_start = None  # (x,y) beim Drücken
-        self._pan_start = None  # (x,y) beim Drücken
-        self._hat_gezogen = False  # um Klick vs Drag zu unterscheiden
+        self._maus_start = None
+        self._pan_start = None
+        self._hat_gezogen = False  # Ziehen (Mausbewegung)
 
-        # -------------------------
-        # GUI bauen
-        # -------------------------
+        # ===== GUI erzeugen =====
         self._ui_bauen()
         self._events_binden()
 
-        # Hinweis im Status
-        self.status("Ordner wählen und loslabeln.")
+        self.status("Ordner wählen und labeln ...")
 
     # =========================
-    # 4 ) UI bauen
+    # 5 ) GUI: erstellen
     # =========================
     def _ui_bauen(self):
         self.grid_columnconfigure(0, weight=0)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # Linkes Panel
+        # ===== Panel: links =====
         self.panel_links = ctk.CTkFrame(self, width=280)
         self.panel_links.grid(row=0, column=0, sticky="nsw", padx=10, pady=10)
 
@@ -150,6 +134,7 @@ class LabelMaker(ctk.CTk):
             self.panel_links, text="Labeling", font=ctk.CTkFont(size=18, weight="bold")
         ).grid(row=0, column=0, padx=12, pady=(12, 6), sticky="w")
 
+        # Button: "Bild-Ordner öffnen"
         self.btn_ordner = ctk.CTkButton(
             self.panel_links, text="Bild-Ordner öffnen", command=self.ordner_auswaehlen
         )
@@ -163,6 +148,7 @@ class LabelMaker(ctk.CTk):
         )
         self.lbl_ordner.grid(row=2, column=0, padx=12, pady=(0, 10), sticky="w")
 
+        # Auswahl: Klasse wählen
         ctk.CTkLabel(
             self.panel_links,
             text="Klasse wählen",
@@ -195,6 +181,7 @@ class LabelMaker(ctk.CTk):
         self.rb_leu.grid(row=5, column=0, padx=12, pady=4, sticky="w")
         self.rb_hef.grid(row=6, column=0, padx=12, pady=4, sticky="w")
 
+        # Anzeige: Zählerstand
         ctk.CTkLabel(
             self.panel_links, text="Zähler", font=ctk.CTkFont(size=14, weight="bold")
         ).grid(row=7, column=0, padx=12, pady=(12, 4), sticky="w")
@@ -205,20 +192,23 @@ class LabelMaker(ctk.CTk):
         )
         self.lbl_zaehler.grid(row=8, column=0, padx=12, pady=(0, 10), sticky="w")
 
-        # Navigation (mit Autosave)
+        # ===== Navigation (Autosave) =====
         frame_nav = ctk.CTkFrame(self.panel_links)
         frame_nav.grid(row=9, column=0, padx=12, pady=6, sticky="ew")
         frame_nav.grid_columnconfigure((0, 1), weight=1)
 
+        # Button: "Vorher"
         self.btn_vor = ctk.CTkButton(
             frame_nav, text="← Vorher", command=self.vorheriges_bild
         )
+        # Button: "Nächstes"
         self.btn_weiter = ctk.CTkButton(
             frame_nav, text="Nächstes →", command=self.naechstes_bild
         )
         self.btn_vor.grid(row=0, column=0, padx=(0, 6), pady=8, sticky="ew")
         self.btn_weiter.grid(row=0, column=1, padx=(6, 0), pady=8, sticky="ew")
 
+        # Button: "Speichern"
         self.btn_speichern = ctk.CTkButton(
             self.panel_links, text="Speichern", command=self.speichern
         )
@@ -229,7 +219,7 @@ class LabelMaker(ctk.CTk):
         )
         self.lbl_status.grid(row=11, column=0, padx=12, pady=(8, 12), sticky="w")
 
-        # Rechtes Panel (Bild)
+        # ===== Panel: rechts =====
         self.panel_rechts = ctk.CTkFrame(self)
         self.panel_rechts.grid(row=0, column=1, sticky="nsew", padx=(0, 10), pady=10)
         self.panel_rechts.grid_columnconfigure(0, weight=1)
@@ -242,28 +232,25 @@ class LabelMaker(ctk.CTk):
         self.lbl_info.place(relx=0.01, rely=0.01)
 
     # =========================
-    # 5 ) Events binden
+    # 6 ) Events
     # =========================
     def _events_binden(self):
-        # Zoom per Mausrad
-        self.canvas.bind("<MouseWheel>", self.zoom_mausrad)  # Windows
-        self.canvas.bind("<Button-4>", self.zoom_linux)  # Linux
-        self.canvas.bind("<Button-5>", self.zoom_linux)
+        self.canvas.bind("<MouseWheel>", self.zoom_mausrad)  # Zoom Mausrad
 
-        # Pan / Klick setzen
+        # Ziehen (Mausbewegung)
         self.canvas.bind("<ButtonPress-1>", self.maus_links_down)
         self.canvas.bind("<B1-Motion>", self.maus_links_move)
         self.canvas.bind("<ButtonRelease-1>", self.maus_links_up)
 
-        # Punkt löschen
-        self.canvas.bind("<Button-3>", self.rechtsklick_loeschen)
-
-        # Bei Größenänderung neu zeichnen
-        self.canvas.bind("<Configure>", lambda e: self.neu_zeichnen())
+        self.canvas.bind("<Button-3>", self.rechtsklick_loeschen)  # Punkt löschen
+        self.canvas.bind(
+            "<Configure>", lambda e: self.neu_zeichnen()
+        )  # Bei Größenänderung neu zeichnen
 
     # =========================
-    # 6 ) Ordner / Bilder
+    # 7 ) Funktionen: Bilder/Ordner und JSONs
     # =========================
+    # ===== Ordner: auswählen =====
     def ordner_auswaehlen(self):
         start = (
             str(self.ordner_bilder) if self.ordner_bilder.exists() else str(Path.cwd())
@@ -277,7 +264,7 @@ class LabelMaker(ctk.CTk):
             [p for p in ordner.iterdir() if p.is_file() and ist_bilddatei(p)]
         )
 
-        if not bilder:
+        if not bilder:  # Hinweismeldung
             messagebox.showwarning(
                 "Keine Bilder", "Im Ordner wurden keine Bilddateien gefunden."
             )
@@ -286,7 +273,7 @@ class LabelMaker(ctk.CTk):
         self.bilder_liste = bilder
         self.bild_index = 0
         self.lbl_ordner.configure(text=str(ordner))
-        self.status(f"{len(self.bilder_liste)} Bilder geladen.")
+        self.status(f"{len(self.bilder_liste)} Bilder geladen.")  # Statusmeldung
         self.bild_laden()
 
     def bild_laden(self):
@@ -295,16 +282,16 @@ class LabelMaker(ctk.CTk):
 
         bild_pfad = self.bilder_liste[self.bild_index]
 
-        # Bild laden
+        # ===== Bild: laden =====
         try:
             self.bild_pil = Image.open(bild_pfad).convert("RGB")
         except Exception as ex:
             messagebox.showerror(
                 "Fehler", f"Konnte Bild nicht laden:\n{bild_pfad}\n\n{ex}"
-            )
+            )  # Fehlermeldung
             return
 
-        # Punkte laden (falls es schon eine JSON gibt)
+        # Punkte laden (falls JSON vorhanden)
         self.punkte = []
         label_pfad = self.ordner_labels / f"{bild_pfad.stem}_points.json"
         if label_pfad.exists():
@@ -320,24 +307,23 @@ class LabelMaker(ctk.CTk):
                             }
                         )
             except Exception:
-                # Wenn die Datei kaputt ist, lieber nicht crashen
+                # falls JSONs fehlerhaft
                 self.punkte = []
 
-        # Ansicht passend setzen
+        # Ansicht neu zeichnen
         self.ansicht_fit()
         self.zaehler_aktualisieren()
         self.neu_zeichnen()
         self.info_aktualisieren()
 
     # =========================
-    # 7 ) Autosave + Navigation
+    # 8 ) Autosave & Navigation
     # =========================
     def vorheriges_bild(self):
         if not self.bilder_liste:
             return
 
-        # Autosave: vor dem Wechsel speichern
-        self.speichern()
+        self.speichern()  # Autosave
 
         self.bild_index -= 1
         if self.bild_index < 0:
@@ -349,8 +335,7 @@ class LabelMaker(ctk.CTk):
         if not self.bilder_liste:
             return
 
-        # Autosave: vor dem Wechsel speichern
-        self.speichern()
+        self.speichern()  # Autosave
 
         self.bild_index += 1
         if self.bild_index >= len(self.bilder_liste):
@@ -359,12 +344,13 @@ class LabelMaker(ctk.CTk):
         self.bild_laden()
 
     # =========================
-    # 8 ) Speichern (JSON)
+    # 9 ) Speichern (JSON)
     # =========================
     def speichern(self):
         if not self.bilder_liste:
             return
 
+        # ===== JSONs passend zu Bilder speichern =====
         bild_pfad = self.bilder_liste[self.bild_index]
         label_pfad = self.ordner_labels / f"{bild_pfad.stem}_points.json"
 
@@ -375,41 +361,39 @@ class LabelMaker(ctk.CTk):
                 json.dumps(daten, indent=2, ensure_ascii=False), encoding="utf-8"
             )
             self.status(f"Autosave: {label_pfad.name}")
-        except Exception as ex:
+        except Exception as ex:  # Fehlermeldung
             messagebox.showerror(
                 "Fehler", f"Konnte nicht speichern:\n{label_pfad}\n\n{ex}"
             )
 
     # =========================
-    # 9 ) Klasse ändern
+    # 10 ) Klasse ändern
     # =========================
     def klasse_geaendert(self):
         self.aktuelle_klasse = self.var_klasse.get()
         self.status(f"Klasse: {KLASSEN_TEXT[self.aktuelle_klasse]}")
 
     # =========================
-    # 10 ) Koordinaten umrechnen
+    # 11 ) Koordinaten umrechnen
     # =========================
-    def canvas_zu_bild(self, cx, cy):
-        # Canvas -> Bildkoordinaten
+    def canvas_zu_bild(self, cx, cy):  # Canvas --> Bildkoordinaten
         ix = (cx - self.verschiebung_x) / self.zoom
         iy = (cy - self.verschiebung_y) / self.zoom
         return ix, iy
 
-    def bild_zu_canvas(self, ix, iy):
-        # Bild -> Canvas-Koordinaten
+    def bild_zu_canvas(self, ix, iy):  # Bild --> Canvas-Koordinaten
         cx = ix * self.zoom + self.verschiebung_x
         cy = iy * self.zoom + self.verschiebung_y
         return cx, cy
 
     # =========================
-    # 11 ) Zoom & Pan
+    # 12 ) Zoom & Pan
     # =========================
     def ansicht_fit(self):
-        # Bild so skalieren, dass es in den Canvas passt
         if self.bild_pil is None:
             return
 
+        # ===== Bild auf Canvas-Größe skalieren =====
         cw = max(1, self.canvas.winfo_width())
         ch = max(1, self.canvas.winfo_height())
         iw, ih = self.bild_pil.size
@@ -417,26 +401,18 @@ class LabelMaker(ctk.CTk):
         faktor = min(cw / iw, ch / ih) * 0.95
         self.zoom = begrenze(faktor, self.zoom_min, self.zoom_max)
 
-        # Bild zentrieren
+        # ===== Bild zentrieren =====
         self.verschiebung_x = (cw - iw * self.zoom) / 2
         self.verschiebung_y = (ch - ih * self.zoom) / 2
 
     def zoom_mausrad(self, event):
-        # Windows: event.delta ist meist 120 oder -120
         if self.bild_pil is None:
             return
-        delta = event.delta / 120.0
+        delta = event.delta / 120.0  # event.delta ist meist 120/-120
         faktor = 1.1**delta
         self.zoom_um_maus(event.x, event.y, faktor)
 
-    def zoom_linux(self, event):
-        if self.bild_pil is None:
-            return
-        faktor = 1.1 if event.num == 4 else 1 / 1.1
-        self.zoom_um_maus(event.x, event.y, faktor)
-
     def zoom_um_maus(self, cx, cy, faktor):
-        # Zoomt so, dass der Punkt unter der Maus unter der Maus bleibt
         alt = self.zoom
         neu = begrenze(alt * faktor, self.zoom_min, self.zoom_max)
         if abs(neu - alt) < 1e-6:
@@ -451,13 +427,11 @@ class LabelMaker(ctk.CTk):
         self.info_aktualisieren()
 
     def maus_links_down(self, event):
-        # Startpunkt merken (für Pan oder Klick)
-        self._maus_start = (event.x, event.y)
+        self._maus_start = (event.x, event.y)  # Startpunkt (x,y)
         self._pan_start = (event.x, event.y)
         self._hat_gezogen = False
 
     def maus_links_move(self, event):
-        # Wenn man zieht: Bild verschieben
         if self._pan_start is None:
             return
 
@@ -465,7 +439,7 @@ class LabelMaker(ctk.CTk):
         dx = event.x - ax
         dy = event.y - ay
 
-        # Wenn Bewegung größer ist als Schwelle, gilt es als Drag
+        # ===== Ziehem oder Nichtziehen, das ist hier die Frage =====
         if (
             abs(event.x - self._maus_start[0]) > DRAG_SCHWELLE
             or abs(event.y - self._maus_start[1]) > DRAG_SCHWELLE
@@ -479,7 +453,6 @@ class LabelMaker(ctk.CTk):
         self.neu_zeichnen()
 
     def maus_links_up(self, event):
-        # Beim Loslassen: Wenn NICHT gezogen wurde -> Punkt setzen
         if self._maus_start is None:
             return
 
@@ -491,7 +464,7 @@ class LabelMaker(ctk.CTk):
         self._hat_gezogen = False
 
     # =========================
-    # 12 ) Punkte setzen / löschen
+    # 13 ) Punkte: setzen / löschen
     # =========================
     def punkt_setzen(self, cx, cy):
         if self.bild_pil is None:
@@ -500,8 +473,7 @@ class LabelMaker(ctk.CTk):
         iw, ih = self.bild_pil.size
         ix, iy = self.canvas_zu_bild(cx, cy)
 
-        # Nur setzen, wenn im Bildbereich
-        if ix < 0 or iy < 0 or ix >= iw or iy >= ih:
+        if ix < 0 or iy < 0 or ix >= iw or iy >= ih:  # Nur setzen, wenn im Bildbereich
             return
 
         self.punkte.append(
@@ -517,7 +489,7 @@ class LabelMaker(ctk.CTk):
         if not self.punkte:
             return
 
-        # Nächsten Punkt suchen (in Screen-Koordinaten)
+        # Nächstgelegenen Punkt suchen
         bester_index = -1
         bester_abstand2 = LOESCH_RADIUS_SCREEN**2
 
@@ -528,7 +500,7 @@ class LabelMaker(ctk.CTk):
                 bester_abstand2 = d2
                 bester_index = i
 
-        # Punkt löschen, wenn einer nah genug ist
+        # Punkt löschen
         if bester_index >= 0:
             entfernt = self.punkte.pop(bester_index)
             self.zaehler_aktualisieren()
@@ -537,7 +509,7 @@ class LabelMaker(ctk.CTk):
             self.status(f"Punkt gelöscht: {KLASSEN_TEXT[entfernt['class']]}")
 
     # =========================
-    # 13 ) Zeichnen
+    # 14 ) Anzeige: neu zeichnen
     # =========================
     def neu_zeichnen(self):
         self.canvas.delete("all")
@@ -553,12 +525,11 @@ class LabelMaker(ctk.CTk):
         bild_skaliert = self.bild_pil.resize((sw, sh), Image.BILINEAR)
         self.bild_tk = ImageTk.PhotoImage(bild_skaliert)
 
-        # Bild zeichnen
         self.canvas.create_image(
             self.verschiebung_x, self.verschiebung_y, image=self.bild_tk, anchor="nw"
-        )
+        )  # Bild zeichnen
 
-        # Punkte zeichnen
+        # ===== Punkte zeichnen =====
         r = max(2, int(PUNKT_RADIUS))
         for p in self.punkte:
             cx, cy = self.bild_zu_canvas(p["x"], p["y"])
@@ -570,7 +541,7 @@ class LabelMaker(ctk.CTk):
             self.canvas.create_line(cx, cy - r - 2, cx, cy + r + 2, fill=farbe, width=2)
 
     # =========================
-    # 14 ) Infos / Status
+    # 15 ) Status: aktualisieren
     # =========================
     def zaehler_aktualisieren(self):
         zaehler = {"ery": 0, "leuko": 0, "hefe": 0}
@@ -599,7 +570,7 @@ class LabelMaker(ctk.CTk):
 
 
 # =========================
-# 15 ) Start der Anwendung
+# 16 ) Start der Anwendung
 # =========================
 if __name__ == "__main__":
     app = LabelMaker()
