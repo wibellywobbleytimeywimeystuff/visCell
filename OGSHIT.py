@@ -1,3 +1,24 @@
+"""
+Modul: gui.py
+Beschreibung:
+Dieses Skript ist die grafische Benutzeroberflächedes Projekts Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse von mikroskopischen Zellstrukturen.
+
+Autor: Max Sielhorst
+Co-Autor: Marlon Aust für Hell-/Dunkelmodus, Validierungsfunktion
+Co-Autor: Sven Klapp für Error-Handling
+Projektname: visCell
+Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse
+von mikroskopischen Zellstrukturen.
+"""
+
+# ============================
+# 1 ) 
+# ============================
+
+# ============================
+# 1 ) Bibliotheken importieren
+# ============================
+
 import customtkinter as ctk
 import tkinter as tk
 import cv2
@@ -6,13 +27,18 @@ from datetime import datetime
 from PIL import Image, ImageTk
 
 
-# ===== Farbschema: Grundeinstellungen =====
+# ============================
+#  Globale Einstellungen
+# ============================
+
 appearance = "dark"
 colormode = "Hellmodus"
 ctk.set_appearance_mode(appearance)
 ctk.set_default_color_theme("blue")
 
-
+# ============================
+#   Hauptanwendung
+# ============================
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -280,7 +306,7 @@ class App(ctk.CTk):
         try:
             ret, frame = self.cap.read()
             if ret and frame is not None:
-                # optional Spiegelung (wenn du es nicht willst: entfernen)
+                # Bild Spiegelung 
                 frame = cv2.flip(frame, 1)
 
                 self.last_frame = frame
@@ -294,7 +320,7 @@ class App(ctk.CTk):
                 if target_w > 50 and target_h > 50:
                     rgb = self._resize_fill(rgb, target_w, target_h)
 
-                    # finale exakte Skalierung via PIL (sauber)
+                    # exakte Skalierung via PIL 
                     pil_img = Image.fromarray(rgb)
                     pil_img = pil_img.resize((target_w, target_h), Image.Resampling.BILINEAR)
                 else:
@@ -318,7 +344,7 @@ class App(ctk.CTk):
             self._set_status("Kein Frame vorhanden (Kamera läuft?)")
             return
 
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        ts = datetime.now().strftime("%d%m%Y_%H%M%S_%f")[:-3]
         cam = f"cam{self.current_cam_index}" if self.current_cam_index is not None else "camX"
         filename = f"snapshot_{cam}_{ts}.png"
         path = os.path.join(self.capture_dir, filename)
