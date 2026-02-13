@@ -37,7 +37,7 @@ def load_points_json(json_path: Path) -> Tuple[str, List[dict]]:
 # =========================
 def list_label_jsons(labels_dir: Path) -> List[Path]:
     return sorted(
-        [p for p in labels_dir.rglob("*_points.json") if p.is_file()]
+        [p for p in labels_dir.glob("*_points.json") if p.is_file()]
     )  # Sortiert alle labels
 
 

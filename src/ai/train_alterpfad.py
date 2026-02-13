@@ -63,98 +63,40 @@ def split_curriculum(
 
 
 # =========================
-# 3 ) Bildindex: schneller Zugriff auf Bilder
+# 3 ) Hilfsfunktion: Bild laden wenn Pfad vorhanden
 # =========================
-def build_image_index(images_root: Path) -> Dict[str, Path]:
-    """Sammelt alle Bilder unterhalb von images_root rekursiv und baut ein Mapping:
-    dateiname -> voller Pfad.
-
-    Hintergrund:
-    Die Projektstruktur enthält Bilder z. B. unter data/batch_A/... sowie data/raw/...
-    Daher reicht ein fester Ordner (raw/augmented) nicht mehr aus.
-    """
-
-    exts = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
-    index: Dict[str, Path] = {}
-    for p in images_root.rglob("*"):
-        if p.is_file() and p.suffix.lower() in exts:
-            # Falls doppelte Dateinamen existieren, gewinnt die zuerst gefundene Datei.
-            # Empfehlung: Dateinamen projektweit eindeutig halten.
-            index.setdefault(p.name, p)
-    return index
-
-
-# =========================
-# 4 ) Trainingsbatches: Gruppierung nach Batch-Ordner
-# =========================
-def split_by_batch_folder(
-    label_json_paths: List[Path], config: Config
-) -> Dict[str, List[Path]]:
-    """Sortiert Labels in Batch A/B/C anhand des Pfads.
-
-    Erwartete Struktur (Beispiel):
-      data/labels_points/batch_A/.../*_points.json
-
-    Fallback:
-      Wenn kein batch_A/batch_B/batch_C im Pfad erkennbar ist, wird wie bisher nach Zellanzahl
-      (a_max/b_max) gruppiert.
-    """
-
-    group_a: List[Path] = []
-    group_b: List[Path] = []
-    group_c: List[Path] = []
-
-    for json_path in label_json_paths:
-        parts = [p.lower() for p in json_path.parts]
-        if "batch_a" in parts:
-            group_a.append(json_path)
-            continue
-        if "batch_b" in parts:
-            group_b.append(json_path)
-            continue
-        if "batch_c" in parts:
-            group_c.append(json_path)
-            continue
-
-        # ===== Fallback: alte Logik =====
-        _, points = load_points_json(json_path)
-        n_cells = image_cell_count(points)
-        if n_cells <= config.a_max:
-            group_a.append(json_path)
-        elif n_cells <= config.b_max:
-            group_b.append(json_path)
-        else:
-            group_c.append(json_path)
-
-    return {"A": group_a, "B": group_b, "C": group_c}
-
-
-# =========================
-# 5 ) Bild laden (über Index)
-# =========================
-def try_read_image(
-    image_index: Dict[str, Path], image_name: str
-) -> Optional[np.ndarray]:
-    """Lädt ein Bild anhand des Dateinamens über den vorberechneten Index."""
-    p = image_index.get(image_name)
-    if p is None:
-        # Falls im JSON die Endung fehlt, probiere gängige Endungen
-        stem = Path(image_name).stem
-        for ext in (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"):
-            p = image_index.get(f"{stem}{ext}")
-            if p is not None:
-                break
-    if p is None:
+def _safe_imread(path: Path) -> Optional[np.ndarray]:
+    if not path.exists():
         return None
-    return cv2.imread(str(p))
+    return cv2.imread(str(path))  # Bild lesen
+
+
+# =========================
+# 4 ) Bild laden
+# =========================
+def try_read_image(images_dir: Path, image_name: str) -> Optional[np.ndarray]:
+
+    image = _safe_imread(images_dir / image_name)
+    if image is not None:
+        return image
+
+    image = _safe_imread(images_dir / "augmented" / image_name)
+    if image is not None:
+        return image
+
+    stem = Path(image_name).stem
+    for folder in (images_dir, images_dir / "augmented"):
+        for ext in (".png", ".jpg", ".jpeg", ".bmp"):  # Erlaubte Dateiformate
+            image = _safe_imread(folder / f"{stem}{ext}")
+            if image is not None:
+                return image
+    return None
 
 
 # =========================
 # 5 ) Preprocessing: Vorbereitung fürs Trainieren
 # =========================
-def make_generator(
-    label_jsons: List[Path], image_index: Dict[str, Path], config: Config
-):
+def make_generator(label_jsons: List[Path], images_dir: Path, config: Config):
 
     # ===== Gaussian-Blur-Werte pro Zelltyp =====
     # Glockenförmige Verteilung um das Zentrum (center-heatmap)
@@ -181,7 +123,7 @@ def make_generator(
             for json_path in label_jsons:
                 image_name, points = load_points_json(json_path)
 
-                image_bgr = try_read_image(image_index, image_name)  # Bilder laden
+                image_bgr = try_read_image(images_dir, image_name)  # Bilder laden
                 if image_bgr is None:
                     continue
 
@@ -233,9 +175,7 @@ def curriculum_schedule():
 # =========================
 # Dataset pro Batchtyp A,B,C
 # Output-labels als dict
-def build_datasets(
-    groups: Dict[str, List[Path]], image_index: Dict[str, Path], config: Config
-):
+def build_datasets(groups: Dict[str, List[Path]], images_dir: Path, config: Config):
     output_signature = (
         tf.TensorSpec(
             shape=(config.tile.tile_h, config.tile.tile_w, 3), dtype=tf.float32
@@ -259,7 +199,7 @@ def build_datasets(
 
         # ===== Trainingsdaten erzeugen =====
         # Erzeugt Trainingsdaten in Form von Tiles sowie Heatmaps für Zellmitte
-        gen = make_generator(groups[key], image_index, config)
+        gen = make_generator(groups[key], images_dir, config)
         dataset = tf.data.Dataset.from_generator(
             gen, output_signature=output_signature
         )  # Tile Input-Bild
@@ -302,20 +242,17 @@ def mix_datasets(datasets: Dict[str, tf.data.Dataset], weights: Dict[str, float]
 # Lädt labels --> erstellt datasets --> erstellt U-Net Modell --> trainiert
 def train(config: Config, data_root: Path):
     labels_dir = data_root / "labels_points"
-    images_root = data_root  # enthält batch_A/batch_B/batch_C sowie raw/ (rekursiv)
+    images_dir = data_root / "raw"
 
     # ===== Labels: prüfen =====
     label_jsons = list_label_jsons(labels_dir)
-    if not label_jsons:
+    if not label_jsons:  # Fehlermeldung
         raise FileNotFoundError(f"Keine *_points.json in {labels_dir}")
 
-    curriculum_groups = split_by_batch_folder(
+    curriculum_groups = split_curriculum(
         label_jsons, config
     )  # Daten sortieren nach Batchtyp A,B,C
-    image_index = build_image_index(images_root)
-    datasets = build_datasets(
-        curriculum_groups, image_index, config
-    )  # Baut tf-Datasets
+    datasets = build_datasets(curriculum_groups, images_dir, config)  # Baut tf-Datasets
 
     # ===== U-Net Modell erzeugen =====
     model = build_unet(

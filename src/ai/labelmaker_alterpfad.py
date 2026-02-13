@@ -82,10 +82,14 @@ class LabelMaker(ctk.CTk):
 
         # ===== Pfade =====
         # Annahme: Skript liegt im gleichen Ordner
-        self.projekt_ordner = Path(__file__).resolve().parents[2]  # Projekt-Root
-        self.ordner_bilder = self.projekt_ordner / "data"  # batch_A/batch_B/batch_C und raw
-        self.ordner_labels_root = self.projekt_ordner / "data" / "labels_points"
-        self.ordner_labels_root.mkdir(parents=True, exist_ok=True)
+        self.projekt_ordner = (
+            Path(__file__).resolve().parents[1]
+            if (Path(__file__).resolve().parents[1].name == "visCell")
+            else Path(__file__).resolve().parent
+        )
+        self.ordner_bilder = self.projekt_ordner / "data" / "raw"
+        self.ordner_labels = self.projekt_ordner / "data" / "labels_points"
+        self.ordner_labels.mkdir(parents=True, exist_ok=True)
 
         # ===== Zustände setzen =====
         self.bilder_liste = []
@@ -95,7 +99,7 @@ class LabelMaker(ctk.CTk):
         self.punkte = []  # {"x": float, "y": float, "class": str}
 
         self.bild_pil = None  # Aktuelles Bild
-        self.bild_tk = None  # Anzeige
+        self.bild_tk = None  # Anzeige (Tk)
 
         # ===== Zoom & ziehen =====
         self.zoom = 1.0
@@ -289,9 +293,7 @@ class LabelMaker(ctk.CTk):
 
         # Punkte laden (falls JSON vorhanden)
         self.punkte = []
-        rel_path = bild_pfad.relative_to(self.projekt_ordner / "data")
-        label_ordner = self.ordner_labels_root / rel_path.parent
-        label_pfad = label_ordner / f"{bild_pfad.stem}_points.json"
+        label_pfad = self.ordner_labels / f"{bild_pfad.stem}_points.json"
         if label_pfad.exists():
             try:
                 daten = json.loads(label_pfad.read_text(encoding="utf-8"))
@@ -350,9 +352,7 @@ class LabelMaker(ctk.CTk):
 
         # ===== JSONs passend zu Bilder speichern =====
         bild_pfad = self.bilder_liste[self.bild_index]
-        rel_path = bild_pfad.relative_to(self.projekt_ordner / "data")
-        label_ordner = self.ordner_labels_root / rel_path.parent
-        label_pfad = label_ordner / f"{bild_pfad.stem}_points.json"
+        label_pfad = self.ordner_labels / f"{bild_pfad.stem}_points.json"
 
         daten = {"image": bild_pfad.name, "points": self.punkte}
 
