@@ -3,7 +3,7 @@ Modul: gui.py
 Beschreibung:
 Dieses Skript ist die grafische Benutzeroberflächedes Projekts Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse von mikroskopischen Zellstrukturen.
 
-Autor: Max Sielhorst
+Autor: Max Sielhorst ist doof
 Co-Autor: Marlon Aust für Hell-/Dunkelmodus, Validierungsfunktion
 Co-Autor: Sven Klapp für Error-Handling
 Projektname: visCell
