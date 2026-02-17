@@ -21,7 +21,7 @@ from pathlib import Path
 
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import filedialog, messagebox  # Windows PopUp
+from tkinter import filedialog, messagebox  # Windows Pop-Up
 from PIL import Image, ImageTk
 
 
@@ -36,7 +36,8 @@ KLASSEN_TEXT = {
     "hefe": "Hefe",
 }
 
-FARBEN = {  # Farbzuordnung
+# Farbzuordnung
+FARBEN = {
     "ery": "#ff4d4d",
     "leuko": "#4da6ff",
     "hefe": "#ffd24d",
@@ -63,6 +64,7 @@ def ist_bilddatei(datei: Path) -> bool:
 
 
 # ===== Zoom-Begrenzung =====
+# Verhindert unendliches zoomen
 def begrenze(wert: float, min_wert: float, max_wert: float) -> float:
     return max(min_wert, min(max_wert, wert))
 
@@ -76,21 +78,21 @@ class LabelMaker(ctk.CTk):
 
         # ===== Fenster erstellen =====
         self.title("visCell – Labelmaker v2 (einfach)")
-        self.geometry("1280x720")  # Standard HD-Auflösung
+        self.geometry("1280x720")  # Fenster Normalgröße
         self.maxsize(1920, 1080)  # Fenster Maximalgröße
         self.minsize(1000, 600)  # Fenster Mindestgröße
 
         # ===== Pfade =====
         # Annahme: Skript liegt im gleichen Ordner
         self.projekt_ordner = Path(__file__).resolve().parents[2]  # Projekt-Root
-        self.ordner_bilder = self.projekt_ordner / "data"  # batch_A/batch_B/batch_C und raw
+        self.ordner_bilder = self.projekt_ordner / "data"
         self.ordner_labels_root = self.projekt_ordner / "data" / "labels_points"
         self.ordner_labels_root.mkdir(parents=True, exist_ok=True)
 
         # ===== Zustände setzen =====
         self.bilder_liste = []
-        self.bild_index = 0  # aktuelles Bild
-        self.aktuelle_klasse = "ery"
+        self.bild_index = 0
+        self.aktuelle_klasse = "ery"  # Vorauswahl
 
         self.punkte = []  # {"x": float, "y": float, "class": str}
 
@@ -127,7 +129,9 @@ class LabelMaker(ctk.CTk):
         self.panel_links.grid(row=0, column=0, sticky="nsw", padx=10, pady=10)
 
         ctk.CTkLabel(
-            self.panel_links, text="Labeling", font=ctk.CTkFont(size=18, weight="bold")
+            self.panel_links,
+            text="Labeling von Rohbildern",
+            font=ctk.CTkFont(size=18, weight="bold"),
         ).grid(row=0, column=0, padx=12, pady=(12, 6), sticky="w")
 
         # Button: "Bild-Ordner öffnen"
@@ -144,14 +148,15 @@ class LabelMaker(ctk.CTk):
         )
         self.lbl_ordner.grid(row=2, column=0, padx=12, pady=(0, 10), sticky="w")
 
-        # Auswahl: Klasse wählen
+        # ===== Auswahl: Klasse wählen =====
         ctk.CTkLabel(
             self.panel_links,
             text="Klasse wählen",
             font=ctk.CTkFont(size=14, weight="bold"),
         ).grid(row=3, column=0, padx=12, pady=(6, 4), sticky="w")
-
         self.var_klasse = tk.StringVar(value=self.aktuelle_klasse)
+
+        # Erythrozyten
         self.rb_ery = ctk.CTkRadioButton(
             self.panel_links,
             text="Erythrozyt",
@@ -159,6 +164,7 @@ class LabelMaker(ctk.CTk):
             value="ery",
             command=self.klasse_geaendert,
         )
+        # Leukozyten
         self.rb_leu = ctk.CTkRadioButton(
             self.panel_links,
             text="Leukozyt",
@@ -166,6 +172,7 @@ class LabelMaker(ctk.CTk):
             value="leuko",
             command=self.klasse_geaendert,
         )
+        # Hefezellen
         self.rb_hef = ctk.CTkRadioButton(
             self.panel_links,
             text="Hefe",
@@ -181,6 +188,7 @@ class LabelMaker(ctk.CTk):
         ctk.CTkLabel(
             self.panel_links, text="Zähler", font=ctk.CTkFont(size=14, weight="bold")
         ).grid(row=7, column=0, padx=12, pady=(12, 4), sticky="w")
+
         self.lbl_zaehler = ctk.CTkLabel(
             self.panel_links,
             text="Ery: 0\nLeuko: 0\nHefe: 0\nGesamt: 0",
@@ -228,20 +236,18 @@ class LabelMaker(ctk.CTk):
         self.lbl_info.place(relx=0.01, rely=0.01)
 
     # =========================
-    # 6 ) Events
+    # 6 ) Events: binden
     # =========================
+    # Bindet Funktionen an events (user-input)
     def _events_binden(self):
-        self.canvas.bind("<MouseWheel>", self.zoom_mausrad)  # Zoom Mausrad
+        self.canvas.bind("<MouseWheel>", self.zoom_mausrad)
 
-        # Ziehen (Mausbewegung)
         self.canvas.bind("<ButtonPress-1>", self.maus_links_down)
         self.canvas.bind("<B1-Motion>", self.maus_links_move)
         self.canvas.bind("<ButtonRelease-1>", self.maus_links_up)
 
-        self.canvas.bind("<Button-3>", self.rechtsklick_loeschen)  # Punkt löschen
-        self.canvas.bind(
-            "<Configure>", lambda e: self.neu_zeichnen()
-        )  # Bei Größenänderung neu zeichnen
+        self.canvas.bind("<Button-3>", self.rechtsklick_loeschen)
+        self.canvas.bind("<Configure>", lambda e: self.neu_zeichnen())
 
     # =========================
     # 7 ) Funktionen: Bilder/Ordner und JSONs
@@ -272,19 +278,19 @@ class LabelMaker(ctk.CTk):
         self.status(f"{len(self.bilder_liste)} Bilder geladen.")  # Statusmeldung
         self.bild_laden()
 
+    # ===== Bild: laden =====
     def bild_laden(self):
         if not self.bilder_liste:
             return
 
         bild_pfad = self.bilder_liste[self.bild_index]
 
-        # ===== Bild: laden =====
         try:
             self.bild_pil = Image.open(bild_pfad).convert("RGB")
-        except Exception as ex:
+        except Exception as ex:  # Fehlermeldung
             messagebox.showerror(
                 "Fehler", f"Konnte Bild nicht laden:\n{bild_pfad}\n\n{ex}"
-            )  # Fehlermeldung
+            )
             return
 
         # Punkte laden (falls JSON vorhanden)
@@ -304,8 +310,7 @@ class LabelMaker(ctk.CTk):
                                 "class": pt["class"],
                             }
                         )
-            except Exception:
-                # falls JSONs fehlerhaft
+            except Exception:  # falls JSONs fehlerhaft
                 self.punkte = []
 
         # Ansicht neu zeichnen
@@ -315,13 +320,14 @@ class LabelMaker(ctk.CTk):
         self.info_aktualisieren()
 
     # =========================
-    # 8 ) Autosave & Navigation
+    # 8 ) Navigation: Bilder
     # =========================
+    # Vorher
     def vorheriges_bild(self):
         if not self.bilder_liste:
             return
 
-        self.speichern()  # Autosave
+        self.speichern()
 
         self.bild_index -= 1
         if self.bild_index < 0:
@@ -329,11 +335,12 @@ class LabelMaker(ctk.CTk):
 
         self.bild_laden()
 
+    # Nächstes
     def naechstes_bild(self):
         if not self.bilder_liste:
             return
 
-        self.speichern()  # Autosave
+        self.speichern()
 
         self.bild_index += 1
         if self.bild_index >= len(self.bilder_liste):
@@ -376,18 +383,20 @@ class LabelMaker(ctk.CTk):
     # =========================
     # 11 ) Koordinaten umrechnen
     # =========================
-    def canvas_zu_bild(self, cx, cy):  # Canvas --> Bildkoordinaten
+    # Canvas --> Bildkoordinaten
+    def canvas_zu_bild(self, cx, cy):
         ix = (cx - self.verschiebung_x) / self.zoom
         iy = (cy - self.verschiebung_y) / self.zoom
         return ix, iy
 
-    def bild_zu_canvas(self, ix, iy):  # Bild --> Canvas-Koordinaten
+    # Bild --> Canvas-Koordinaten
+    def bild_zu_canvas(self, ix, iy):
         cx = ix * self.zoom + self.verschiebung_x
         cy = iy * self.zoom + self.verschiebung_y
         return cx, cy
 
     # =========================
-    # 12 ) Zoom & Pan
+    # 12 ) Event: Mausinput
     # =========================
     def ansicht_fit(self):
         if self.bild_pil is None:
@@ -408,7 +417,7 @@ class LabelMaker(ctk.CTk):
     def zoom_mausrad(self, event):
         if self.bild_pil is None:
             return
-        delta = event.delta / 120.0  # event.delta ist meist 120/-120
+        delta = event.delta / 120.0  # event.delta bei WIN oft 120/-120
         faktor = 1.1**delta
         self.zoom_um_maus(event.x, event.y, faktor)
 
@@ -439,7 +448,7 @@ class LabelMaker(ctk.CTk):
         dx = event.x - ax
         dy = event.y - ay
 
-        # ===== Ziehem oder Nichtziehen, das ist hier die Frage =====
+        # ===== Ziehen oder Nichtziehen, ... =====
         if (
             abs(event.x - self._maus_start[0]) > DRAG_SCHWELLE
             or abs(event.y - self._maus_start[1]) > DRAG_SCHWELLE
@@ -466,6 +475,7 @@ class LabelMaker(ctk.CTk):
     # =========================
     # 13 ) Punkte: setzen / löschen
     # =========================
+    # Punkt setzen
     def punkt_setzen(self, cx, cy):
         if self.bild_pil is None:
             return
@@ -485,6 +495,7 @@ class LabelMaker(ctk.CTk):
         self.info_aktualisieren()
         self.status(f"Punkt gesetzt: {KLASSEN_TEXT[self.aktuelle_klasse]}")
 
+    # Punkt löschen
     def rechtsklick_loeschen(self, event):
         if not self.punkte:
             return
@@ -511,6 +522,7 @@ class LabelMaker(ctk.CTk):
     # =========================
     # 14 ) Anzeige: neu zeichnen
     # =========================
+    # Neu zeichnen
     def neu_zeichnen(self):
         self.canvas.delete("all")
         if self.bild_pil is None:
@@ -522,12 +534,13 @@ class LabelMaker(ctk.CTk):
         if sw <= 1 or sh <= 1:
             return
 
+        # ===== Bild zeichnen =====
         bild_skaliert = self.bild_pil.resize((sw, sh), Image.BILINEAR)
         self.bild_tk = ImageTk.PhotoImage(bild_skaliert)
 
         self.canvas.create_image(
             self.verschiebung_x, self.verschiebung_y, image=self.bild_tk, anchor="nw"
-        )  # Bild zeichnen
+        )
 
         # ===== Punkte zeichnen =====
         r = max(2, int(PUNKT_RADIUS))
@@ -543,6 +556,7 @@ class LabelMaker(ctk.CTk):
     # =========================
     # 15 ) Status: aktualisieren
     # =========================
+    # Zähler
     def zaehler_aktualisieren(self):
         zaehler = {"ery": 0, "leuko": 0, "hefe": 0}
         for p in self.punkte:
@@ -554,6 +568,7 @@ class LabelMaker(ctk.CTk):
             text=f"Ery: {zaehler['ery']}\nLeuko: {zaehler['leuko']}\nHefe: {zaehler['hefe']}\nGesamt: {gesamt}"
         )
 
+    # Infos
     def info_aktualisieren(self):
         if not self.bilder_liste or self.bild_pil is None:
             self.lbl_info.configure(text="")
@@ -562,9 +577,10 @@ class LabelMaker(ctk.CTk):
         pfad = self.bilder_liste[self.bild_index]
         iw, ih = self.bild_pil.size
         self.lbl_info.configure(
-            text=f"{self.bild_index + 1}/{len(self.bilder_liste)} – {pfad.name} – {iw}x{ih} – Zoom {self.zoom:.2f}x"
+            text=f"sdgsbdfvssfgefx{self.bild_index + 1}/{len(self.bilder_liste)} – {pfad.name} – {iw}x{ih} – Zoom {self.zoom:.2f}x"
         )
 
+    # Status
     def status(self, text):
         self.lbl_status.configure(text=text)
 

@@ -26,7 +26,7 @@ L = tf.keras.layers
 # =========================
 # 2 ) Convolutional
 # =========================
-# Zwei Conv-Layer (3x3) mit BatchNorm + ReLU.
+# Zwei Conv-Layer (3x3) mit BatchNorm + ReLU
 def _conv_block(x: tf.Tensor, filters: int, dropout: float = 0.0) -> tf.Tensor:
 
     x = L.Conv2D(filters, 3, padding="same")(x)
@@ -56,7 +56,7 @@ def build_unet(
     dropout: float = 0.1,
 ) -> tf.keras.Model:
 
-    # ===== Eingabe: Tile =====
+    # Eingabe: Tile
     image_input = L.Input(shape=input_shape, name="image")
 
     x = image_input
@@ -65,7 +65,7 @@ def build_unet(
     # =========================
     # 3.1 ) Encoder (Downsampling)
     # =========================
-    # Encoder: Feature-Extraktion + MaxPooling, Filterzahl steigt pro Stufe
+    # Encoder: Detail-Extraktion + MaxPooling, Filterzahl steigt pro Stufe
     filters = base_filters
     for level in range(depth):
         x = _conv_block(x, filters, dropout=dropout if level > 0 else 0.0)

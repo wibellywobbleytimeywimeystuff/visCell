@@ -18,7 +18,7 @@ import numpy as np
 
 
 # =========================
-# 2 ) Spitzen finden
+# 2 ) Peaks finden
 # =========================
 def find_peaks(binary_map_u8: np.ndarray, min_dist: int = 12) -> np.ndarray:
     if binary_map_u8.dtype != np.uint8:

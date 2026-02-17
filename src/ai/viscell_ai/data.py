@@ -23,7 +23,7 @@ from .config import CLASSES, TileSpec
 
 
 # =========================
-# 2 ) Import und Laden
+# 2 ) Import und Laden: JSONs
 # =========================
 def load_points_json(json_path: Path) -> Tuple[str, List[dict]]:
     import json as _json
@@ -33,7 +33,7 @@ def load_points_json(json_path: Path) -> Tuple[str, List[dict]]:
 
 
 # =========================
-# 3 ) Labels: listen
+# 3 ) Labels: Listen
 # =========================
 def list_label_jsons(labels_dir: Path) -> List[Path]:
     return sorted(
@@ -101,6 +101,7 @@ def tile_image_and_points(
 # =========================
 # 7 ) Tile: Datenvorverarbeitung KI
 # =========================
+# BGR --> RGB
 def preprocess_image_bgr(image_bgr: np.ndarray) -> np.ndarray:
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
     return image_rgb.astype(np.float32) / 255.0
@@ -123,7 +124,7 @@ def generate_targets(
     sigma_px: Dict[str, float],
     blob_r: Dict[str, int],
 ):
-    # ===== Trainings-Targets ===== 
+    # ===== Trainings-Targets =====
     # --> Heatmaps der Zellzentren (pro Klasse) und eine Maske
     tile_h, tile_w = tile_shape_hw
 

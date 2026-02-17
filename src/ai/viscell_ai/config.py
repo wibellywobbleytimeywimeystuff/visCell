@@ -20,7 +20,7 @@ CLASSES = ("ery", "hefe", "leuko")
 
 
 # =========================
-# 2 ) Klasse TileSpec
+# 2 ) Klasse: TileSpec
 # =========================
 @dataclass(frozen=True)
 class TileSpec:
@@ -34,7 +34,7 @@ class TileSpec:
 
 
 # =========================
-# 3 ) Klasse Config
+# 3 ) Klasse: Config
 # =========================
 @dataclass
 class Config:

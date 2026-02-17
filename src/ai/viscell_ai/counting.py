@@ -24,7 +24,7 @@ from .peaks import find_peaks
 
 
 # =========================
-# 2 ) Klasse CountParams
+# 2 ) Klasse: CountParams
 # =========================
 # Zählparameter
 @dataclass
@@ -40,7 +40,7 @@ class CountParams:
 
 
 # =========================
-# 3 ) Safe Crop Maps
+# 3 ) Crop: Maps
 # =========================
 # Schneidet Randbereiche aus prediction-maps heraus --> Zählung nicht verfälscht
 def safe_crop_maps(centers: np.ndarray, mask: np.ndarray, tile_spec: TileSpec):
@@ -54,7 +54,7 @@ def safe_crop_maps(centers: np.ndarray, mask: np.ndarray, tile_spec: TileSpec):
 # 4 ) Zählung
 # =========================
 # Zählt Zentren anhand der Heatmaps und Maske
-# Maske binarisieren → Seeds aus Heatmap → Watershed-Segmentierung → Klassenzuordnung
+# Maske normalisieren (0,1) → Seeds aus Heatmap → Watershed-Segmentierung → Klassenzuordnung
 def count_from_maps(
     centers: np.ndarray,
     mask: np.ndarray,
@@ -63,10 +63,12 @@ def count_from_maps(
 ) -> Dict[str, int]:
     centers_crop, mask_crop = safe_crop_maps(centers, mask, tile_spec)
 
+    # Maske normalisieren (0,1)
     mask_bin = (mask_crop[..., 0] >= params.mask_thresh).astype(np.uint8) * 255
     if mask_bin.max() == 0:
         return {c: 0 for c in CLASSES}
 
+    # Seeds aus Heatmap
     center_max = np.max(centers_crop, axis=-1)
     seed_bin = (center_max >= params.center_seed_thresh).astype(np.uint8) * 255
     seed_peaks = find_peaks(seed_bin, min_dist=params.min_peak_dist)
@@ -79,6 +81,8 @@ def count_from_maps(
 
     dummy_rgb = cv2.cvtColor(mask_bin, cv2.COLOR_GRAY2BGR)
     markers = seed_markers.astype(np.int32)
+
+    # Watershed-Segmentierung
     cv2.watershed(dummy_rgb, markers)
 
     counts = {c: 0 for c in CLASSES}
@@ -88,6 +92,7 @@ def count_from_maps(
         if area < params.min_region_area:
             continue
 
+        # Klassenzuordnung
         class_scores = []
         for ci, cls in enumerate(CLASSES):
             class_scores.append(
