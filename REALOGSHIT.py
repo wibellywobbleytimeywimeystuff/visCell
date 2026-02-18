@@ -11,9 +11,6 @@ Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-An
 von mikroskopischen Zellstrukturen.
 """
 
-# ============================
-# 1 ) 
-# ============================
 
 # ============================
 # 1 ) Bibliotheken importieren
@@ -21,11 +18,13 @@ von mikroskopischen Zellstrukturen.
 
 import customtkinter as ctk
 import tkinter as tk
+from tkinter import filedialog, messagebox
 import cv2
 import os
+import shutil
+import numpy as np
 from datetime import datetime
 from PIL import Image, ImageTk
-
 
 # ============================
 #  Globale Einstellungen
@@ -52,7 +51,8 @@ class App(ctk.CTk):
         self.cap = None
         self.is_streaming = False
         self.current_cam_index = None
-        self.last_frame = None
+        self.last_frame = None  # BGR numpy-array (für cv2.imwrite)
+        self.current_image_path = None  # merkt sich importiertes/angezeigtes Bild
 
         # Tk Image Referenz + after-id zum sicheren Stop
         self._tk_img = None
@@ -83,7 +83,7 @@ class App(ctk.CTk):
         self.appearance = appearance
         self.colormode_text = colormode
 
-        # Farben für Live/Placeholder 
+        # Farben für Live/Placeholder
         self.placeholder_bg = "#BDBDBD"
         self.live_bg = "black"
 
@@ -211,13 +211,11 @@ class App(ctk.CTk):
         self.video_text.configure(
             text=text,
             text_color=("black", "black")  # tuple = sicher für hell + dunkel
-    )
+        )
         self.video_text.place(relx=0.5, rely=0.5, anchor="center")
-        self.video_text.lift()  # ganz wichtig: nach vorne holen
-
+        self.video_text.lift()
 
     def _clear_video_label(self):
-        # >>> HIER ist der entscheidende Fix: grauer Hintergrund wenn kein Bild <<<
         self._set_live_background(self.placeholder_bg)
 
         self._tk_img = None
@@ -260,7 +258,6 @@ class App(ctk.CTk):
     def _stop_camera(self):
         self.is_streaming = False
         self.current_cam_index = None
-        self.last_frame = None
 
         # alten after-loop abbrechen
         if self._after_id is not None:
@@ -301,6 +298,34 @@ class App(ctk.CTk):
         return resized[y0:y0 + target_h, x0:x0 + target_w]
 
     # =========================
+    # Helper: RGB Bild im Panel anzeigen
+    # =========================
+    def _display_rgb_in_video_label(self, rgb: np.ndarray):
+        """Zeigt ein RGB numpy array im linken Video-Label an (mit Fill-Resize)."""
+        if self.video_label is None:
+            return
+
+        self._set_live_background(self.live_bg)
+        self._hide_overlay_text()
+
+        self.video_label.update_idletasks()
+        target_w = self.video_label.winfo_width()
+        target_h = self.video_label.winfo_height()
+
+        # Fallback, falls Widget noch nicht "fertig" gerendert wurde
+        if target_w <= 50 or target_h <= 50:
+            target_w, target_h = 1280, 720
+
+        rgb = self._resize_fill(rgb, target_w, target_h)
+
+        pil_img = Image.fromarray(rgb)
+        pil_img = pil_img.resize((target_w, target_h), Image.Resampling.BILINEAR)
+
+        self._tk_img = ImageTk.PhotoImage(pil_img)
+        self.video_label.configure(image=self._tk_img)
+        self.video_label.image = self._tk_img
+
+    # =========================
     # Live Loop
     # =========================
     def _update_frame_loop(self):
@@ -310,10 +335,12 @@ class App(ctk.CTk):
         try:
             ret, frame = self.cap.read()
             if ret and frame is not None:
-                # Bild Spiegelung 
+                # Bild Spiegelung
                 frame = cv2.flip(frame, 1)
 
-                self.last_frame = frame
+                self.last_frame = frame  # BGR
+                self.current_image_path = None
+
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
                 # exakte Labelgröße verwenden
@@ -324,7 +351,7 @@ class App(ctk.CTk):
                 if target_w > 50 and target_h > 50:
                     rgb = self._resize_fill(rgb, target_w, target_h)
 
-                    # exakte Skalierung via PIL 
+                    # exakte Skalierung via PIL
                     pil_img = Image.fromarray(rgb)
                     pil_img = pil_img.resize((target_w, target_h), Image.Resampling.BILINEAR)
                 else:
@@ -333,7 +360,6 @@ class App(ctk.CTk):
                 self._tk_img = ImageTk.PhotoImage(pil_img)
                 self.video_label.configure(image=self._tk_img)
                 self.video_label.image = self._tk_img
-                #self.video_label.lift()
 
         except Exception as e:
             print("Fehler im Live-Loop:", e)
@@ -341,28 +367,129 @@ class App(ctk.CTk):
         self._after_id = self.after(33, self._update_frame_loop)
 
     # =========================
-    # Snapshot
+    # Snapshot (speichert in captures/)
     # =========================
     def _save_snapshot(self):
         if self.last_frame is None:
-            self._set_status("Kein Frame vorhanden (Kamera läuft?)")
+            self._set_status("Kein Frame vorhanden (Kamera läuft? / Bild importiert?)")
             return
 
         ts = datetime.now().strftime("%d%m%Y_%H%M%S_%f")[:-3]
-        cam = f"cam{self.current_cam_index}" if self.current_cam_index is not None else "camX"
+        cam = f"cam{self.current_cam_index}" if self.current_cam_index is not None else "img"
         filename = f"snapshot_{cam}_{ts}.png"
         path = os.path.join(self.capture_dir, filename)
 
         ok = cv2.imwrite(path, self.last_frame)
         if ok:
-            if self.freeze_after_capture_var.get():
+            if self.freeze_after_capture_var.get() and self.cap is not None:
                 self.is_streaming = False
                 self._set_status(f"Gespeichert & Live pausiert: {path}")
-                # wenn Freeze aktiv: Live pausiert -> Background bleibt Live 
             else:
                 self._set_status(f"Gespeichert: {path}")
         else:
             self._set_status("Speichern fehlgeschlagen")
+
+    # =========================
+    # Bild importieren (aus captures/ starten)
+    # =========================
+    def _import_image(self):
+        # Kamera anhalten, damit das importierte Bild nicht überschrieben wird
+        self._stop_camera()
+
+        file_path = filedialog.askopenfilename(
+            title="Bild importieren",
+            initialdir=self.capture_dir,
+            filetypes=[
+                ("Bilddateien", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff"),
+                ("PNG", "*.png"),
+                ("JPEG", "*.jpg *.jpeg"),
+                ("Alle Dateien", "*.*"),
+            ],
+        )
+
+        if not file_path:
+            self._set_status("Import abgebrochen")
+            return
+
+        try:
+            pil_img = Image.open(file_path).convert("RGB")
+            rgb = np.array(pil_img)  # RGB
+            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)  # für cv2.imwrite
+
+            self.last_frame = bgr
+            self.current_image_path = file_path
+
+            self._display_rgb_in_video_label(rgb)
+            self._set_status(f"Importiert: {os.path.basename(file_path)}")
+
+        except Exception as e:
+            self._set_status("Import fehlgeschlagen")
+            messagebox.showerror("Fehler", f"Bild konnte nicht importiert werden:\n{e}")
+
+    # =========================
+    # Bild exportieren (Save-Dialog; startet in captures/)
+    # =========================
+    def _export_image(self):
+        if self.last_frame is None:
+            self._set_status("Kein Bild zum Exportieren vorhanden")
+            return
+
+        ts = datetime.now().strftime("%d%m%Y_%H%M%S")
+        default_name = f"export_{ts}.png"
+
+        save_path = filedialog.asksaveasfilename(
+            title="Bild exportieren",
+            initialdir=self.capture_dir,
+            initialfile=default_name,
+            defaultextension=".png",
+            filetypes=[
+                ("PNG", "*.png"),
+                ("JPEG", "*.jpg *.jpeg"),
+                ("BMP", "*.bmp"),
+                ("TIFF", "*.tif *.tiff"),
+            ],
+        )
+
+        if not save_path:
+            self._set_status("Export abgebrochen")
+            return
+
+        try:
+            ok = cv2.imwrite(save_path, self.last_frame)
+            if ok:
+                self._set_status(f"Exportiert: {save_path}")
+            else:
+                self._set_status("Export fehlgeschlagen")
+                messagebox.showerror("Fehler", "Export fehlgeschlagen (cv2.imwrite gab False zurück).")
+        except Exception as e:
+            self._set_status("Export fehlgeschlagen")
+            messagebox.showerror("Fehler", f"Bild konnte nicht exportiert werden:\n{e}")
+
+    # =========================
+    # Optional: Alles aus captures/ exportieren (kopieren)
+    # =========================
+    def _export_all_captures(self):
+        target_dir = filedialog.askdirectory(
+            title="Zielordner wählen (alle Captures exportieren)",
+            initialdir=os.path.abspath(self.capture_dir),
+        )
+
+        if not target_dir:
+            self._set_status("Export abgebrochen")
+            return
+
+        try:
+            count = 0
+            for name in os.listdir(self.capture_dir):
+                src = os.path.join(self.capture_dir, name)
+                if os.path.isfile(src):
+                    shutil.copy2(src, os.path.join(target_dir, name))
+                    count += 1
+
+            self._set_status(f"Exportiert: {count} Datei(en) nach {target_dir}")
+        except Exception as e:
+            self._set_status("Export aller Captures fehlgeschlagen")
+            messagebox.showerror("Fehler", f"Konnte Captures nicht exportieren:\n{e}")
 
     def _set_status(self, msg: str):
         if self.status_label is not None:
@@ -483,7 +610,6 @@ class App(ctk.CTk):
         # =========================
         # Mitte Live-View
         # =========================
-        # Startfarbe egal, wird über _clear_video_label/_start_camera gesetzt
         live_view = ctk.CTkFrame(main_frame, fg_color=self.placeholder_bg, corner_radius=0)
         live_view.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
         live_view.grid_rowconfigure(0, weight=1)
@@ -521,11 +647,12 @@ class App(ctk.CTk):
         bottom_controls = ctk.CTkFrame(main_frame)
         bottom_controls.grid(row=2, column=0, sticky="w", pady=10)
 
-        ctk.CTkButton(bottom_controls, text="Bild importieren").grid(row=0, column=0, padx=5)
-        ctk.CTkButton(bottom_controls, text="Bild exportieren").grid(row=0, column=1, padx=5)
-        ctk.CTkButton(bottom_controls, text="Bild aufnehmen", command=self._save_snapshot).grid(
-            row=0, column=2, padx=5
-        )
+        ctk.CTkButton(bottom_controls, text="Bild importieren", command=self._import_image).grid(row=0, column=0, padx=5)
+        ctk.CTkButton(bottom_controls, text="Bild exportieren", command=self._export_image).grid(row=0, column=1, padx=5)
+        ctk.CTkButton(bottom_controls, text="Bild aufnehmen", command=self._save_snapshot).grid(row=0, column=2, padx=5)
+
+        # Optional: alles aus captures exportieren
+        ctk.CTkButton(bottom_controls, text="Alle Captures exportieren", command=self._export_all_captures).grid(row=0, column=3, padx=5)
 
         # =========================
         # Rechts Panel
