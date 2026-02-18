@@ -11,7 +11,6 @@ Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-An
 von mikroskopischen Zellstrukturen.
 """
 
-
 # ============================
 # 1 ) Bibliotheken importieren
 # ============================
@@ -39,6 +38,7 @@ appearance = "dark"
 colormode = "Hellmodus"
 ctk.set_appearance_mode(appearance)
 ctk.set_default_color_theme("blue")
+
 
 # ============================
 #   Hauptanwendung
@@ -221,9 +221,19 @@ class App(ctk.CTk):
             self._SetWindowLongPtr = SetWindowLongPtrW
             self._CallWindowProc = CallWindowProcW
             self._SetWindowLongPtr.restype = ctypes.c_void_p
-            self._SetWindowLongPtr.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p]
+            self._SetWindowLongPtr.argtypes = [
+                wintypes.HWND,
+                ctypes.c_int,
+                ctypes.c_void_p,
+            ]
             self._CallWindowProc.restype = ctypes.c_longlong
-            self._CallWindowProc.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+            self._CallWindowProc.argtypes = [
+                ctypes.c_void_p,
+                wintypes.HWND,
+                wintypes.UINT,
+                wintypes.WPARAM,
+                wintypes.LPARAM,
+            ]
             CALLBACK_RESTYPE = ctypes.c_longlong
         else:
             SetWindowLongW = ctypes.windll.user32.SetWindowLongW
@@ -231,12 +241,28 @@ class App(ctk.CTk):
             self._SetWindowLongPtr = SetWindowLongW
             self._CallWindowProc = CallWindowProcW
             self._SetWindowLongPtr.restype = ctypes.c_long
-            self._SetWindowLongPtr.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p]
+            self._SetWindowLongPtr.argtypes = [
+                wintypes.HWND,
+                ctypes.c_int,
+                ctypes.c_void_p,
+            ]
             self._CallWindowProc.restype = ctypes.c_long
-            self._CallWindowProc.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+            self._CallWindowProc.argtypes = [
+                ctypes.c_void_p,
+                wintypes.HWND,
+                wintypes.UINT,
+                wintypes.WPARAM,
+                wintypes.LPARAM,
+            ]
             CALLBACK_RESTYPE = ctypes.c_long
 
-        WNDPROC = ctypes.WINFUNCTYPE(CALLBACK_RESTYPE, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+        WNDPROC = ctypes.WINFUNCTYPE(
+            CALLBACK_RESTYPE,
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+        )
 
         def _proc(hWnd, msg, wParam, lParam):
             if msg == WM_DEVICECHANGE:
@@ -286,7 +312,11 @@ class App(ctk.CTk):
             self.camera_select.configure(values=new_values)
 
         # Wenn laufende Kamera entfernt wurde -> stoppen und reset
-        active_choice = f"Camera {self.current_cam_index}" if self.current_cam_index is not None else None
+        active_choice = (
+            f"Camera {self.current_cam_index}"
+            if self.current_cam_index is not None
+            else None
+        )
         if active_choice is not None and active_choice not in new_values:
             self._stop_camera()
             self._clear_video_label()
@@ -321,7 +351,11 @@ class App(ctk.CTk):
         return found
 
     def _get_camera_menu_values(self):
-        skip = self.current_cam_index if (self.is_streaming and self.current_cam_index is not None) else None
+        skip = (
+            self.current_cam_index
+            if (self.is_streaming and self.current_cam_index is not None)
+            else None
+        )
         detected = self._detect_cameras(max_index=5, skip_index=skip)
 
         camera_values = ["Kamera auswählen..."] + detected
@@ -337,7 +371,11 @@ class App(ctk.CTk):
             idx = int(choice.split()[-1])
 
             # Wenn dieselbe Kamera schon läuft: nichts neu starten
-            if self.current_cam_index == idx and self.is_streaming and self.cap is not None:
+            if (
+                self.current_cam_index == idx
+                and self.is_streaming
+                and self.cap is not None
+            ):
                 self._update_capture_button_state()
                 return
 
@@ -346,17 +384,20 @@ class App(ctk.CTk):
             self._stop_camera()
             self._clear_video_label()
 
-            # Wenn User zurück auf "Kamera auswählen..." geht, einmal aktualisieren
-            self._refresh_camera_dropdown_once()
-
+        self._schedule_camera_refresh()
         self._update_capture_button_state()
+
 
     # =========================
     # Freeze Toggle
     # =========================
     def _on_freeze_toggle(self):
         if not self.freeze_after_capture_var.get():
-            if self.cap is not None and self.current_cam_index is not None and not self.is_streaming:
+            if (
+                self.cap is not None
+                and self.current_cam_index is not None
+                and not self.is_streaming
+            ):
                 self.is_streaming = True
                 self._set_status("Live-Feed fortgesetzt (Freeze aus)")
                 self._hide_overlay_text()
@@ -456,7 +497,7 @@ class App(ctk.CTk):
 
         x0 = (new_w - target_w) // 2
         y0 = (new_h - target_h) // 2
-        return resized[y0:y0 + target_h, x0:x0 + target_w]
+        return resized[y0 : y0 + target_h, x0 : x0 + target_w]
 
     # =========================
     # Helper: RGB Bild im Panel anzeigen
@@ -508,7 +549,9 @@ class App(ctk.CTk):
                 if target_w > 50 and target_h > 50:
                     rgb = self._resize_fill(rgb, target_w, target_h)
                     pil_img = Image.fromarray(rgb)
-                    pil_img = pil_img.resize((target_w, target_h), Image.Resampling.BILINEAR)
+                    pil_img = pil_img.resize(
+                        (target_w, target_h), Image.Resampling.BILINEAR
+                    )
                 else:
                     pil_img = Image.fromarray(rgb)
 
@@ -525,7 +568,9 @@ class App(ctk.CTk):
     # Snapshot (speichert in captures/)
     # =========================
     def _save_snapshot(self):
-        if self.current_cam_index is None or not str(self.camera_var.get()).startswith("Camera "):
+        if self.current_cam_index is None or not str(self.camera_var.get()).startswith(
+            "Camera "
+        ):
             self._set_status("Bitte zuerst eine Kamera auswählen")
             return
 
@@ -534,7 +579,11 @@ class App(ctk.CTk):
             return
 
         ts = datetime.now().strftime("%d%m%Y_%H%M%S_%f")[:-3]
-        cam = f"cam{self.current_cam_index}" if self.current_cam_index is not None else "img"
+        cam = (
+            f"cam{self.current_cam_index}"
+            if self.current_cam_index is not None
+            else "img"
+        )
         filename = f"snapshot_{cam}_{ts}.png"
         path = os.path.join(self.capture_dir, filename)
 
@@ -618,7 +667,9 @@ class App(ctk.CTk):
                 self._set_status(f"Exportiert: {save_path}")
             else:
                 self._set_status("Export fehlgeschlagen")
-                messagebox.showerror("Fehler", "Export fehlgeschlagen (cv2.imwrite gab False zurück).")
+                messagebox.showerror(
+                    "Fehler", "Export fehlgeschlagen (cv2.imwrite gab False zurück)."
+                )
         except Exception as e:
             self._set_status("Export fehlgeschlagen")
             messagebox.showerror("Fehler", f"Bild konnte nicht exportiert werden:\n{e}")
@@ -739,7 +790,7 @@ class App(ctk.CTk):
         # =========================
         controls_frame = ctk.CTkFrame(main_frame)
         controls_frame.grid(row=0, column=0, sticky="w", pady=(0, 10))
-
+        
         camera_values = self._get_camera_menu_values()
         self._last_camera_values = camera_values
 
@@ -747,7 +798,7 @@ class App(ctk.CTk):
             controls_frame,
             values=camera_values,
             variable=self.camera_var,
-            command=self._on_camera_selected
+            command=self._on_camera_selected,
         )
         self.camera_select.grid(row=0, column=0, padx=5)
 
@@ -755,11 +806,13 @@ class App(ctk.CTk):
             controls_frame,
             text="Nach Aufnahme pausieren",
             variable=self.freeze_after_capture_var,
-            command=self._on_freeze_toggle
+            command=self._on_freeze_toggle,
         )
         self.freeze_checkbox.grid(row=0, column=1, padx=10)
 
-        ctk.CTkButton(controls_frame, text="Analyse starten").grid(row=0, column=2, padx=5)
+        ctk.CTkButton(controls_frame, text="Analyse starten").grid(
+            row=0, column=2, padx=5
+        )
 
         self.status_label = ctk.CTkLabel(controls_frame, text="", width=400, anchor="w")
         self.status_label.grid(row=0, column=3, padx=10)
@@ -767,13 +820,17 @@ class App(ctk.CTk):
         # =========================
         # Mitte Live-View
         # =========================
-        live_view = ctk.CTkFrame(main_frame, fg_color=self.placeholder_bg, corner_radius=0)
+        live_view = ctk.CTkFrame(
+            main_frame, fg_color=self.placeholder_bg, corner_radius=0
+        )
         live_view.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
         live_view.grid_rowconfigure(0, weight=1)
         live_view.grid_columnconfigure(0, weight=1)
         self.live_view = live_view
 
-        self.video_container = tk.Frame(live_view, bg=self.placeholder_bg, bd=0, highlightthickness=0)
+        self.video_container = tk.Frame(
+            live_view, bg=self.placeholder_bg, bd=0, highlightthickness=0
+        )
         self.video_container.grid(row=0, column=0, sticky="nsew")
         self.video_container.grid_rowconfigure(0, weight=1)
         self.video_container.grid_columnconfigure(0, weight=1)
@@ -783,7 +840,7 @@ class App(ctk.CTk):
             bg=self.placeholder_bg,
             bd=0,
             highlightthickness=0,
-            relief="flat"
+            relief="flat",
         )
         self.video_label.grid(row=0, column=0, sticky="nsew")
 
@@ -791,7 +848,7 @@ class App(ctk.CTk):
             live_view,
             text="Kein Bild vorhanden\n(bitte Kamera auswählen)",
             font=ctk.CTkFont(size=18),
-            fg_color="transparent"
+            fg_color="transparent",
         )
         self.video_text.place(relx=0.5, rely=0.5, anchor="center")
 
@@ -801,13 +858,23 @@ class App(ctk.CTk):
         bottom_controls = ctk.CTkFrame(main_frame)
         bottom_controls.grid(row=2, column=0, sticky="w", pady=10)
 
-        ctk.CTkButton(bottom_controls, text="Bild importieren", command=self._import_image).grid(row=0, column=0, padx=5)
-        ctk.CTkButton(bottom_controls, text="Bild exportieren", command=self._export_image).grid(row=0, column=1, padx=5)
+        ctk.CTkButton(
+            bottom_controls, text="Bild importieren", command=self._import_image
+        ).grid(row=0, column=0, padx=5)
+        ctk.CTkButton(
+            bottom_controls, text="Bild exportieren", command=self._export_image
+        ).grid(row=0, column=1, padx=5)
 
-        self.capture_btn = ctk.CTkButton(bottom_controls, text="Bild aufnehmen", command=self._save_snapshot)
+        self.capture_btn = ctk.CTkButton(
+            bottom_controls, text="Bild aufnehmen", command=self._save_snapshot
+        )
         self.capture_btn.grid(row=0, column=2, padx=5)
 
-        ctk.CTkButton(bottom_controls, text="Alle Captures exportieren", command=self._export_all_captures).grid(row=0, column=3, padx=5)
+        ctk.CTkButton(
+            bottom_controls,
+            text="Alle Captures exportieren",
+            command=self._export_all_captures,
+        ).grid(row=0, column=3, padx=5)
 
         self._update_capture_button_state()
 
@@ -819,7 +886,9 @@ class App(ctk.CTk):
         right_panel.grid_propagate(False)
         right_panel.grid_rowconfigure(1, weight=1)
 
-        analysis_frame = ctk.CTkFrame(right_panel, fg_color="#BDBDBD", corner_radius=8, height=200)
+        analysis_frame = ctk.CTkFrame(
+            right_panel, fg_color="#BDBDBD", corner_radius=8, height=200
+        )
         analysis_frame.pack(fill="x", padx=10, pady=10)
         self.analysis_frame = analysis_frame
 
@@ -832,7 +901,7 @@ class App(ctk.CTk):
                 "Erythrozyten Anzahl:   \nLeukozyten Anzahl:   \nHefezellen Anzahl: "
             ),
             justify="left",
-            text_color="black"
+            text_color="black",
         )
         analysis_label.pack(side="left", padx=10, pady=10)
         self.analysis_label = analysis_label
@@ -843,10 +912,12 @@ class App(ctk.CTk):
         ctk.CTkButton(
             export_frame,
             text="Metadaten ändern",
-            command=lambda: self._open_metadata_popup(analysis_label)
+            command=lambda: self._open_metadata_popup(analysis_label),
         ).pack(side="left", pady=10)
 
-        ctk.CTkButton(export_frame, text="Bericht exportieren").pack(side="left", padx=10, pady=10)
+        ctk.CTkButton(export_frame, text="Bericht exportieren").pack(
+            side="left", padx=10, pady=10
+        )
 
         slider_frame = ctk.CTkFrame(right_panel)
         slider_frame.pack(fill="x", padx=10, pady=10)
@@ -888,8 +959,12 @@ class App(ctk.CTk):
         function_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
         function_frame.pack(fill="x", padx=10, pady=10)
 
-        ctk.CTkButton(function_frame, text="Validieren", width=80).pack(side="left", padx=5, pady=10)
-        ctk.CTkButton(function_frame, text="AutoAdjust", width=80).pack(side="left", padx=5, pady=10)
+        ctk.CTkButton(function_frame, text="Validieren", width=80).pack(
+            side="left", padx=5, pady=10
+        )
+        ctk.CTkButton(function_frame, text="AutoAdjust", width=80).pack(
+            side="left", padx=5, pady=10
+        )
 
     # =========================
     # Sauber schließen
@@ -913,4 +988,3 @@ class App(ctk.CTk):
 if __name__ == "__main__":
     app = App()
     app.mainloop()
-
