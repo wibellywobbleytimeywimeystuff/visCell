@@ -62,7 +62,7 @@ class Augmentation(ctk.CTk):
             if Path(__file__).resolve().parents[1].name == "visCell"
             else Path(__file__).resolve().parent
         )
-        self.ordner_raw = self.projekt_ordner / "data" / "raw"
+        self.ordner_raw = self.projekt_ordner / "data"
         self.ordner_labels = self.projekt_ordner / "data" / "labels_points"
         self.ordner_labels.mkdir(parents=True, exist_ok=True)
 

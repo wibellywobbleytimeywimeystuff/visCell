@@ -1,0 +1,2 @@
+python src/ai/train.py --data .
+py src/ai/train.py --data .
