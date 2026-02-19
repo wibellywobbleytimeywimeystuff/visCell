@@ -74,7 +74,7 @@ class ImageApp(ctk.CTk):
         # --------------------------
         self.control_frame = ctk.CTkFrame(self, width=320)
         self.control_frame.pack(side="left", fill="y", padx=10, pady=10)
-
+ 
         self.control_frame.pack_propagate(False)
 
         ctk.CTkLabel(self.control_frame, text="Steuerung", font=ctk.CTkFont(size=16, weight="bold")).pack(
