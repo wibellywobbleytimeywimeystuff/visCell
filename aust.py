@@ -44,6 +44,7 @@ colormode = (
 ctk.set_appearance_mode(appearance)  # globales Theme setzen
 ctk.set_default_color_theme("blue")  # Farb-Theme ("blue" = Standard)
 
+
 deltatol = 0.01  # Toleranz (dezimal)
 
 
@@ -177,18 +178,22 @@ class App(ctk.CTk):
     # =========================
     # Farbschema Toggle (Hell/Dunkel)
     # =========================
+        # ===== Toggle: Validation =====
+        self.status_label.configure(text_color="#000000")
+    
     def _switchcolor(self):
         global appearance
         global colormode
-
         # Umschalten der globalen Theme-Variablen
         # Wenn gerade light aktiv ist -> dunkel aktivieren und Button-Text "Hellmodus"
         if appearance == "light":
             appearance = "dark"
             colormode = "Hellmodus"
+            self.status_label.configure(text_color="#000000")
         else:
             appearance = "light"
             colormode = "Dunkelmodus"
+            self.status_label.configure(text_color="#00B7FF")
 
         # CTk globales Theme setzen
         ctk.set_appearance_mode(appearance)
