@@ -140,7 +140,7 @@ class ValidierungGUI(ctk.CTk):
                 f"Validierung erfolgreich.\n\n"
                 f"Referenzwert: {soll}\n"
                 f"Istwert: {ist}\n"
-                f"Toleranz: ±{tol}%\n\n"
+                f"Toleranz: ±{tol} Zellen (±{deltatol*100:.0f}%)\n\n"
                 f"Bestätigen Sie die Validierung?")
         else:  # Validierung nok
             text = (

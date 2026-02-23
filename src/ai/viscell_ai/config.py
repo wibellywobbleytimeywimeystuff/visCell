@@ -25,12 +25,12 @@ CLASSES = ("ery", "hefe", "leuko")
 @dataclass(frozen=True)
 class TileSpec:
 
-    tile_w: int = 1024
-    tile_h: int = 1024
+    tile_w: int = 512
+    tile_h: int = 512
 
-    overlap: int = 128  # px
+    overlap: int = 64  # px
 
-    safe_margin: int = 64
+    safe_margin: int = 32
 
 
 # =========================
@@ -57,15 +57,15 @@ class Config:
 
     # Einstellungen: trainieren
     batch_size: int = 2
-    steps_per_epoch: int = 200
+    steps_per_epoch: int = 100
     val_steps: int = 40
 
     epochs_total: int = 100
-    base_filters: int = 32
+    base_filters: int = 16
     depth: int = 4
     dropout: float = 0.1
 
     learning_rate: float = 2e-4
 
     output_directory: str = "runs"
-    run_name: str = "viscell_unet"
+    run_name: str = "viscell_unet_512_cpu"

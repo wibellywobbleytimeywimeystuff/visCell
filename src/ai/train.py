@@ -202,7 +202,7 @@ def curriculum_schedule():
     return [
         (15, {"A": 0.8, "B": 0.2, "C": 0.0}),  # Grob
         (25, {"A": 0.3, "B": 0.5, "C": 0.2}),  # Weniger grob
-        (45, {"A": 0.1, "B": 0.3, "C": 0.6}),  # Feiner
+        (35, {"A": 0.1, "B": 0.3, "C": 0.6}),  # Feiner
         (15, {"A": 0.2, "B": 0.3, "C": 0.5}),  # fine-tuning
     ]
 
@@ -280,49 +280,49 @@ def mix_datasets(datasets: Dict[str, tf.data.Dataset], weights: Dict[str, float]
 # Lädt labels --> erstellt datasets --> erstellt U-Net Modell --> trainiert
 def train(config: Config, data_root: Path):
     labels_dir = data_root / "labels_points"
-    images_root = data_root  # enthält batches
+    images_root = data_root
 
     # ===== Labels: prüfen =====
     label_jsons = list_label_jsons(labels_dir)
-    if not label_jsons:  # Fehlermeldung
+    if not label_jsons:
         raise FileNotFoundError(f"Keine *_points.json in {labels_dir}")
 
-    curriculum_groups = split_by_batch_folder(
-        label_jsons, config
-    )  # Daten sortieren nach Typ A,B,C
+    curriculum_groups = split_by_batch_folder(label_jsons, config)
     image_index = build_image_index(images_root)
-    datasets = build_datasets(
-        curriculum_groups, image_index, config
-    )  # Erstellt tf-Datasets
+    datasets = build_datasets(curriculum_groups, image_index, config)
 
-    # ===== U-Net Modell erzeugen =====
-    model = build_unet(
-        input_shape=(config.tile.tile_h, config.tile.tile_w, 3),
-        base_filters=config.base_filters,
-        depth=config.depth,
-        dropout=config.dropout,
-    )
+    # ===== Ausgabe / Checkpoint-Pfad (MUSS VOR Resume stehen) =====
+    output_directory = Path(config.output_directory) / config.run_name
+    output_directory.mkdir(parents=True, exist_ok=True)
+    ckpt_path = output_directory / "model_best.keras"
+
+    # ===== U-Net Modell erzeugen / Resume =====
+    if ckpt_path.exists():
+        print(f">> Resume: Lade {ckpt_path}")
+        model = tf.keras.models.load_model(str(ckpt_path), compile=False)
+    else:
+        model = build_unet(
+            input_shape=(config.tile.tile_h, config.tile.tile_w, 3),
+            base_filters=config.base_filters,
+            depth=config.depth,
+            dropout=config.dropout,
+        )
 
     # ===== Kompilierer =====
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=config.learning_rate),
         loss={
-            "centers": focal_bce(gamma=2.0, alpha=0.25),  # Output: center-heat
-            "mask": tf.keras.losses.BinaryCrossentropy(),  # Output: mask
+            "centers": focal_bce(gamma=2.0, alpha=0.25),
+            "mask": tf.keras.losses.BinaryCrossentropy(),
         },
         loss_weights={"centers": 1.0, "mask": 0.5},
     )
-
-    # ===== Ausgabe =====
-    output_directory = Path(config.output_directory) / config.run_name
-    output_directory.mkdir(parents=True, exist_ok=True)
-    ckpt_path = output_directory / "model_best.keras"  # KI-Modell
 
     callbacks = [
         tf.keras.callbacks.ModelCheckpoint(
             filepath=str(ckpt_path),
             monitor="loss",
-            save_best_only=True,  # Speichert Modell, wenn Gesamt-Loss besser wird
+            save_best_only=True,
             save_weights_only=False,
         ),
         tf.keras.callbacks.CSVLogger(

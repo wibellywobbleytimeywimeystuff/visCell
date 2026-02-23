@@ -1,0 +1,10 @@
+PS C:\Users\maust\Desktop\visCell> py src/ai/infer_count.py --model runs/viscell_unet/model_best.keras --image data/batch_A/stained/augmented/A_st_001_rot000.png
+
+Soll
+Ery: 113
+Leuko: 2
+Hefe: 0
+
+Zeit: ~ 
+
+Ist

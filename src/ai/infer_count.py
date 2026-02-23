@@ -17,6 +17,11 @@ von mikroskopischen Zellstrukturen.
 # 1 ) Einbinden der Bibliotheken
 # =========================
 from __future__ import annotations
+import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+os.environ["OMP_NUM_THREADS"] = "4"
+os.environ["TF_NUM_INTRAOP_THREADS"] = "4"
+os.environ["TF_NUM_INTEROP_THREADS"] = "1"
 
 import argparse
 from pathlib import Path
@@ -24,6 +29,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 import tensorflow as tf
+
+tf.config.threading.set_intra_op_parallelism_threads(4)
+tf.config.threading.set_inter_op_parallelism_threads(1)
 
 from viscell_ai.config import Config, CLASSES, TileSpec
 from viscell_ai.data import preprocess_image_bgr
@@ -70,7 +78,7 @@ def run_inference(image_path: Path, model_path: Path, config: Config):
         raise FileNotFoundError(f"Bild konnte nicht gelesen werden: {image_path}")
 
     # ===== Modell laden =====
-    model = tf.keras.models.load_model(model_path, compile=False)
+    model = tf.keras.models.load_model(str(model_path), compile=False)
 
     # ===== Bildgröße & Zähl-Container =====
     image_height, image_width = image_bgr.shape[:2]

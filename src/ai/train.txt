@@ -1,2 +1,6 @@
-python src/ai/train.py --data .
-py src/ai/train.py --data .
+run
+python src/ai/train.py --data data
+py src/ai/train.py --data data
+
+test
+py src/ai/infer_count.py --model runs/viscell_unet/model_best.keras --image data/batch_A/stained/augmented/A_st_001_rot000.png

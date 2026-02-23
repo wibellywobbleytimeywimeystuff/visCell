@@ -50,8 +50,8 @@ def _conv_block(x: tf.Tensor, filters: int, dropout: float = 0.0) -> tf.Tensor:
 # - "centers": 3 Heatmap-Kanäle (z.B. ery/hefe/leuko) mit Sigmoid
 # - "mask":    1 Kanal (gültiger Bereich) mit Sigmoid
 def build_unet(
-    input_shape: tuple[int, int, int] = (1024, 1024, 3),
-    base_filters: int = 32,
+    input_shape: tuple[int, int, int] = (512, 512, 3),
+    base_filters: int = 16,
     depth: int = 4,
     dropout: float = 0.1,
 ) -> tf.keras.Model:
