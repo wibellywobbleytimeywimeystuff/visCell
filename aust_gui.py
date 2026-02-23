@@ -525,7 +525,7 @@ class App(ctk.CTk):
                 ("PNG", "*.png"),
                 ("JPEG", "*.jpg *.jpeg"),
                 ("BMP", "*.bmp"),
-                ("TIFF", "*.tif *.tiff"),
+                ("TIFF", "*.tif *.tiff"),  
             ],
         )
 
@@ -555,7 +555,7 @@ class App(ctk.CTk):
                 ("TIFF", "*.tif *.tiff"),
             ],
         )
-        
+
         # Abbruch
         if not save_path:
             self._set_status("Export abgebrochen")
