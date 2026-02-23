@@ -1,0 +1,20 @@
+Error Handling
+Live-Feed bei Kamerawechsel
+    - löschen des Inhaltes der Varibale worauf die Cam-Quelle läuft
+    - das löschen wird quasi erzwungen, damit das Kamera-Panel nicht stockt
+    - Varibale kann direkt den neuen Live feed annehmen und anzeigen
+    - 
+
+Artefakte im Livebild
+    - ein dünner senkrechter schwarzer Strich in mitten der Liveanzeige der Kamera
+    - Artefakt, was wahrscheinlich durch Gui erzeugt wird
+    - Lösung: das Kamera Panel wird nach ganz oben geleckt (wenn man das Gui in ebenen betrachtet)
+
+Schrift auf Kamerapanel
+    - die schrift beim Cam-Panel macht den Farbwechsel nicht mit
+    - Lösung: Schrift-Variable bei der Ende ganz oben hingelegt, wie beim Artefakt im Livebild
+
+Live-Aktualisierung des Dropdown Menüs
+    - das Programm muss neu gestartet werden, damit neue Kameras angezeigt werden
+    idee: zugriff auf windows, sobald ein neues Gerät erkannt wird
+    Lösung: bei einstecken eines neuen Gerätes, wird dann automatisch das Dropdown Menü aktualisiert
