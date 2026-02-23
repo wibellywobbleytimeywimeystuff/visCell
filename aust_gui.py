@@ -526,7 +526,7 @@ class App(ctk.CTk):
                 ("JPEG", "*.jpg *.jpeg"),
                 ("BMP", "*.bmp"),
                 ("TIFF", "*.tif *.tiff"),  
-            ],
+            ],     
         )
 
         # =========================
