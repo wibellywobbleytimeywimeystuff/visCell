@@ -4,7 +4,7 @@ Beschreibung:
 Dieses Skript ist die grafische Benutzeroberflächedes Projekts Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse von mikroskopischen Zellstrukturen.
 
 Autor: Max Sielhorst
-Co-Autor: Marlon Aust für gesamten Hell-/Dunkelmodus, Integrierung KI und Validierungsfunktion
+Co-Autor: Marlon Aust für Hell-/Dunkelmodus, Validierungsfunktion und Einbindung der KI
 Co-Autor: Sven Klapp für Error-Handling
 Projektname: visCell
 Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse
