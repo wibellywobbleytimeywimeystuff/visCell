@@ -57,14 +57,14 @@ class App(ctk.CTk):
 
         # ===== Kamera / Video Status-Variablen =====
         self.cap = None  # OpenCV VideoCapture Objekt (None = keine Kamera geöffnet)
-        self.is_streaming = (False)  # Flag: True = Live-Loop soll laufen, False = kein Loop
+        self.is_streaming = False  # Flag: True = Live-Loop soll laufen, False = kein Loop
         self.current_cam_index = None  # gemerkter Index der aktiven Kamera (0/1/2/...)
         self.last_frame = None  # letzter Frame als BGR (OpenCV Standardformat)
-        self.current_image_path = (None)  # Pfad des aktuell importierten/angezeigten Bildes (falls vorhanden)
+        self.current_image_path = None  # Pfad des aktuell importierten/angezeigten Bildes (falls vorhanden)
 
         # ===== Tk-Image Referenz + after()-ID =====
-        self._tk_img = (None)  # Referenz auf PhotoImage (wichtig: sonst zeigt Tk das Bild nicht)
-        self._after_id = (None)  # ID des geplanten self.after(...) Calls (zum sauberen Abbrechen)
+        self._tk_img = None  # Referenz auf PhotoImage (wichtig: sonst zeigt Tk das Bild nicht)
+        self._after_id = None  # ID des geplanten self.after(...) Calls (zum sauberen Abbrechen)
 
         # Dropdown Variable (Kamera Auswahl)
         self.camera_var = ctk.StringVar(value="Kamera auswählen...")  # Starttext im Dropdown
@@ -87,7 +87,7 @@ class App(ctk.CTk):
         self.cam_status_label = None
         self.darkmode_btn = None
 
-        # NEU: Button-Referenz "Bild aufnehmen"
+        # Button-Referenz "Bild aufnehmen"
         self.capture_btn = None
 
         # ===== self.farbwechsel =====
@@ -97,6 +97,13 @@ class App(ctk.CTk):
         # ===== Farben für Anzeigezustände =====
         self.placeholder_bg = "#BDBDBD"  # hellgrau: wenn kein Live-Feed/Bild
         self.live_bg = "black"  # schwarz: wenn Live-Feed läuft / Bild angezeigt wird
+
+        # =========================
+        # Status-State (damit Themewechsel NICHT deine Validierungsfarben überschreibt)
+        # =========================
+        self._status_kind = "info"     # "info" | "warning" | "ok" | "error" | "custom"
+        self._status_text = "Bereit"   # letzter Text
+        self._status_color = None      # letzte (oder berechnete) Farbe
 
         # Fenster-Schließen abfangen (damit Kamera sauber freigegeben wird)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -111,8 +118,11 @@ class App(ctk.CTk):
         # Initial: Placeholder anzeigen
         self._clear_video_label()
 
-        # NEU: Initial den Zustand vom "Bild aufnehmen" Button setzen
+        # Initial: Button-Status setzen (disabled, solange keine Kamera aktiv)
         self._update_capture_button_state()
+
+        # Initial: Status sauber setzen (passend zum Theme)
+        self._apply_status_style_on_theme_change()
 
     # =========================
     # 3.1 ) Helper: "Bild aufnehmen" Button aktiv/deaktiv setzen
@@ -126,9 +136,7 @@ class App(ctk.CTk):
         """
         choice = self.camera_var.get()
 
-        # Standard: deaktiviert, bis eine echte Kamera gewählt ist
         enable = False
-
         if isinstance(choice, str) and choice.startswith("Camera "):
             enable = True
 
@@ -137,6 +145,71 @@ class App(ctk.CTk):
 
         if self.capture_btn is not None:
             self.capture_btn.configure(state="normal" if enable else "disabled")
+
+    # =========================
+    # 3.2 ) Status-Farben je nach Theme (gut lesbar)
+    # =========================
+    def _status_color_for_kind(self, kind: str) -> str:
+        """
+        Liefert eine gut lesbare Status-Farbe abhängig vom Theme.
+        (Helles Orange im Darkmode, dunkles Orange im Lightmode, usw.)
+        """
+        is_dark = (appearance == "dark")
+
+        if kind == "ok":
+            return "#00FF66" if is_dark else "#005823"
+        if kind == "warning":
+            # helles Orange in Darkmode / dunkleres Orange in Lightmode
+            return "#FFAA00" if is_dark else "#A86D00"
+        if kind == "error":
+            return "#FF4444" if is_dark else "#DB0101"
+        # "info" / default
+        return "#00B7FF" if is_dark else "#000000"
+
+    # =========================
+    # 3.3 ) Themewechsel -> Status-Farbe neu anwenden (ohne Überschreiben!)
+    # =========================
+    def _apply_status_style_on_theme_change(self):
+        """
+        Wichtig:
+        - Beim Themewechsel darf NICHT pauschal text_color gesetzt werden (das killt Validierungsfarben).
+        - Stattdessen wird die aktuelle Status-Art (kind) neu berechnet und wieder angewendet.
+        """
+        if self._status_kind != "custom":
+            self._status_color = self._status_color_for_kind(self._status_kind)
+
+        # Status neu zeichnen (Text bleibt, Farbe wird angepasst)
+        self._status(self._status_text, kind=self._status_kind if self._status_kind != "custom" else None)
+
+    # =========================
+    # 3.4 ) Status setzen (einheitlich, speichert State)
+    # =========================
+    def _status(self, text: str, farbe: str | None = None, kind: str | None = None):
+        """
+        Einheitliche Status-Funktion:
+        - Wenn kind gesetzt ist, wird die Farbe automatisch passend zum Theme gewählt.
+        - Wenn farbe gesetzt ist (ohne kind), wird eine Custom-Farbe gespeichert.
+        """
+        if kind is not None:
+            self._status_kind = kind
+            self._status_color = self._status_color_for_kind(kind)
+        else:
+            if farbe is not None:
+                self._status_kind = "custom"
+                self._status_color = farbe
+
+        self._status_text = text
+
+        def gui_update():
+            if self.status_label is not None:
+                self.status_label.configure(text=self._status_text, text_color=self._status_color or "#00B7FF")
+                # optional: Status nach oben holen (falls Layer-Probleme)
+                try:
+                    self.status_label.lift()
+                except Exception:
+                    pass
+
+        self.after(0, gui_update)
 
     # ===== Helper: Background für Live/Placeholder setzen =====
     def _set_live_background(self, color: str):
@@ -150,30 +223,9 @@ class App(ctk.CTk):
         if self.video_label is not None:
             self.video_label.configure(bg=color)
 
-        # =========================
-        # 4 ) Farbschema Toggle (Hell/Dunkel)
-        # =========================
-        # ===== Toggle: Validation =====
-        global val_refcolor, val_loadcolor, val_tolcolor, val_resultcolor
-
-        # ===== Standardfarben: Dunkelmodus =====
-        val_refcolor = "#00B7FF"
-        val_loadcolor = "#00B7FF"
-        val_tolcolor = "#00B7FF"
-        val_resultcolor = "#00B7FF"
-
-        match appearance:
-            case "dark":
-                self.status_label.configure(text_color="#00B7FF")
-                val_refcolor = "#00B7FF"
-            case "light":
-                self.status_label.configure(text_color="#000000")
-                val_refcolor = "#000000"
-                val_loadcolor = "#000000"
-                val_tolcolor = "#000000"
-                val_resultcolor = "#000000"
-            case _:
-                self.status_label.configure(text_color="#FF0000")
+        # WICHTIG:
+        # Hier darf NICHT die Status-Farbe gesetzt werden!
+        # (Sonst überschreibst du z.B. Orange/Rot nach der Validierung.)
 
     # ===== Farbwechsel =====
     def _switchcolor(self):
@@ -201,6 +253,9 @@ class App(ctk.CTk):
         else:
             self._set_live_background(self.placeholder_bg)
 
+        # NEU: Status-Farbe passend zum Theme neu anwenden (damit Orange immer lesbar bleibt)
+        self._apply_status_style_on_theme_change()
+
     # =========================
     # 5 ) Footer (unten rechts: Theme Toggle Button)
     # =========================
@@ -209,7 +264,12 @@ class App(ctk.CTk):
         footer.pack(fill="x", side="bottom")
 
         # ===== Button: Farbwechsel =====
-        self.darkmode_btn = ctk.CTkButton(footer, text=self.colormode_text, command=self._switchcolor, width=110)
+        self.darkmode_btn = ctk.CTkButton(
+            footer,
+            text=self.colormode_text,
+            command=self._switchcolor,
+            width=110
+        )
         self.darkmode_btn.pack(side="right", padx=5, pady=5)
 
     # ===== Kameras finden (0..max_index) =====
@@ -230,17 +290,16 @@ class App(ctk.CTk):
     # =========================
     # 6 ) Kamera Dropdown via trace
     # =========================
-    # Wird automatisch aufgerufen wenn camera_var sich ändert
     def _camera_var_changed(self, *_):
         choice = self.camera_var.get()  # aktuellen Auswahltext holen
         self._on_camera_selected(choice)  # Auswahl behandeln
 
-        # NEU: Nach jeder Dropdown-Änderung den Button-Status aktualisieren
+        # Nach jeder Dropdown-Änderung den Button-Status aktualisieren
         self._update_capture_button_state()
 
     # Falls "Camera X" gewählt -> Kamera starten
     def _on_camera_selected(self, choice: str):
-        if choice.startswith("Camera "):
+        if isinstance(choice, str) and choice.startswith("Camera "):
             idx = int(choice.split()[-1])  # Index aus "Camera 0" etc. extrahieren
             self._start_camera(idx)  # Kamera starten
         else:
@@ -250,53 +309,47 @@ class App(ctk.CTk):
 
     # ===== Freeze Toggle =====
     def _on_freeze_toggle(self):
-        # Diese Funktion wird aufgerufen wenn der Freeze-Checkbox-Status verändert wird
-        # Hier: Wenn Freeze AUSgeschaltet wird und eine Kamera offen ist, soll Live wieder laufen
+        # Wenn Freeze AUSgeschaltet wird und eine Kamera offen ist, soll Live wieder laufen
         if not self.freeze_after_capture_var.get():  # Freeze = False
-            # Nur weiterlaufen, wenn Kamera offen ist und wir gerade NICHT streamen
             if (self.cap is not None and self.current_cam_index is not None and not self.is_streaming):
                 self.is_streaming = True
                 self._set_status("Live-Feed fortgesetzt (Freeze aus)")
                 self._hide_overlay_text()
                 self._set_live_background(self.live_bg)
-                self._update_frame_loop()  # Live-Loop erneut starten
+                self._update_frame_loop()
 
     # ===== Overlay Handling (Text über dem Video) =====
     def _hide_overlay_text(self):
-        try:  # Overlay-Label ausblenden (wenn es existiert)
+        try:
             self.video_text.place_forget()
         except Exception:
             pass
 
     # ===== Overlay-Text setzen + zentriert anzeigen =====
     def _show_overlay_text(self, text: str):
-        self.video_text.configure(text=text, text_color=("black", "black"))  # tuple: für hell/dunkel robust
+        self.video_text.configure(text=text, text_color=("black", "black"))
         self.video_text.place(relx=0.5, rely=0.5, anchor="center")
-        self.video_text.lift()  # in den Vordergrund
+        self.video_text.lift()
 
     # =====Placeholder Hintergrund aktivieren =====
     def _clear_video_label(self):
         self._set_live_background(self.placeholder_bg)
 
-        # Bildreferenz löschen (damit nichts angezeigt wird)
         self._tk_img = None
         if self.video_label is not None:
             self.video_label.configure(image="")
             self.video_label.image = None
 
-        # Overlay Text anzeigen: "Kein Bild..."
         if self.video_text is not None:
             self._show_overlay_text("Kein Bild vorhanden\n(bitte Kamera auswählen)")
 
-        # Tkinter updaten (stellt sicher dass UI Änderungen "sofort" sichtbar sind)
         self.update_idletasks()
 
     # ===== Kamera Start/Stop =====
     def _start_camera(self, index: int):
-        self._stop_camera()  # Erst alles stoppen (inkl. after cancel), damit nichts parallel läuft
+        self._stop_camera()
         self.cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
 
-        # ===== Wenn Kamera nicht geöffnet werden kann -> Abbruch und Hinweis =====
         if not self.cap.isOpened():
             try:
                 self.cap.release()
@@ -305,20 +358,16 @@ class App(ctk.CTk):
             self.cap = None
             self._set_live_background(self.placeholder_bg)
             self._show_overlay_text(f"Kamera {index} konnte nicht geöffnet werden")
-
-            # NEU: Button-Status aktualisieren (bleibt deaktiviert, wenn keine Kamera wirklich läuft)
             self._update_capture_button_state()
             return
 
-        # ===== Kamera erfolgreich: Status setzen =====
         self.current_cam_index = index
         self.is_streaming = True
 
-        self._set_live_background(self.live_bg)  # Live Hintergrund setzen
-        self._hide_overlay_text()  # Overlay ausblenden
-        self._update_frame_loop()  # Live-Loop starten (Frames regelmäßig lesen und anzeigen)
+        self._set_live_background(self.live_bg)
+        self._hide_overlay_text()
+        self._update_frame_loop()
 
-        # NEU: Button-Status aktualisieren (jetzt aktiv)
         self._update_capture_button_state()
 
     # ===== Streaming deaktivieren =====
@@ -326,7 +375,6 @@ class App(ctk.CTk):
         self.is_streaming = False
         self.current_cam_index = None
 
-        # after-loop abbrechen, falls aktiv
         if self._after_id is not None:
             try:
                 self.after_cancel(self._after_id)
@@ -334,7 +382,6 @@ class App(ctk.CTk):
                 pass
             self._after_id = None
 
-        # Kamera freigeben
         if self.cap is not None:
             try:
                 self.cap.release()
@@ -342,35 +389,22 @@ class App(ctk.CTk):
                 pass
             self.cap = None
 
-        # Tk-Image Referenz löschen
         self._tk_img = None
-
-        # Background wieder placeholder
         self._set_live_background(self.placeholder_bg)
-
-        # NEU: Button-Status aktualisieren (deaktiviert)
         self._update_capture_button_state()
 
     # ===== Resize helper: FILL (Panel füllen, ggf. Crop) =====
     def _resize_fill(self, rgb, target_w, target_h):
-        # Originalmaße aus Array holen
         h, w = rgb.shape[:2]
-
-        # Schutz: ungültige Größe
         if w <= 0 or h <= 0:
             return rgb
 
-        # Scale wählen: so groß, dass Ziel komplett gefüllt ist (max statt min)
         scale = max(target_w / w, target_h / h)
-
-        # Neue Größe berechnen
         new_w = max(1, int(w * scale))
         new_h = max(1, int(h * scale))
 
-        # Skalieren
         resized = cv2.resize(rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-        # Center Crop: mittig das Ziel ausschneiden
         x0 = (new_w - target_w) // 2
         y0 = (new_h - target_h) // 2
 
@@ -378,110 +412,83 @@ class App(ctk.CTk):
 
     # ===== Helper: RGB Bild im Panel anzeigen =====
     def _display_rgb_in_video_label(self, rgb: np.ndarray):
-        """
-        Zeigt ein RGB numpy array im linken Video-Label an (mit Fill-Resize).
-        Wichtig: rgb muss RGB sein (nicht BGR), weil PIL/Anzeige so erwartet wird.
-        """
-        # Falls GUI noch nicht gebaut/Label nicht vorhanden -> raus
         if self.video_label is None:
             return
 
-        # ===== Hintergrund + Overlay =====
         self._set_live_background(self.live_bg)
         self._hide_overlay_text()
 
-        # ===== Aktuelle Widgetgröße holen (damit wir passend skalieren) =====
         self.video_label.update_idletasks()
         target_w = self.video_label.winfo_width()
         target_h = self.video_label.winfo_height()
 
-        # Fallback falls Widget noch nicht richtig gerendert ist
         if target_w <= 50 or target_h <= 50:
             target_w, target_h = 1280, 720
 
-        # Bild auf Ziel "fillen" (crop möglich)
         rgb = self._resize_fill(rgb, target_w, target_h)
 
-        # NumPy -> PIL
         pil_img = Image.fromarray(rgb)
-
-        # Exakt auf Zielgröße (zur Sicherheit)
         pil_img = pil_img.resize((target_w, target_h), Image.Resampling.BILINEAR)
 
-        # PIL -> Tk PhotoImage (muss als Referenz gespeichert werden)
         self._tk_img = ImageTk.PhotoImage(pil_img)
-
-        # In Label anzeigen
         self.video_label.configure(image=self._tk_img)
-        self.video_label.image = self._tk_img  # zweite Referenz, Tk ist manchmal zickig
+        self.video_label.image = self._tk_img
 
     # =========================
     # 7 ) Live Loop (liest Frames und zeigt sie)
     # =========================
     def _update_frame_loop(self):
-        # Wenn kein streaming aktiv oder cap fehlt -> nichts tun
         if not self.is_streaming or self.cap is None:
             return
 
         try:
-            ret, frame = self.cap.read()  # Frame aus Kamera lesen
-            if ret and frame is not None:  # Nur wenn Frame gültig ist
-                frame = cv2.flip(frame, 1)  # Spiegelung (wirkt natürlicher wie Selfie)
-                self.last_frame = frame  # Frame als "letztes Bild" speichern (OpenCV = BGR)
-                self.current_image_path = None  # Wenn wir live sind, ist das kein importiertes Bild mehr
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # BGR -> RGB (für Anzeige)
+            ret, frame = self.cap.read()
+            if ret and frame is not None:
+                frame = cv2.flip(frame, 1)
+                self.last_frame = frame
+                self.current_image_path = None
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-                # Widgetgröße holen
                 self.video_label.update_idletasks()
                 target_w = self.video_label.winfo_width()
                 target_h = self.video_label.winfo_height()
 
                 if target_w > 50 and target_h > 50:
-                    rgb = self._resize_fill(rgb, target_w, target_h)  # Bild passend füllen
-
-                    # PIL für genaue Skalierung
+                    rgb = self._resize_fill(rgb, target_w, target_h)
                     pil_img = Image.fromarray(rgb)
                     pil_img = pil_img.resize((target_w, target_h), Image.Resampling.BILINEAR)
                 else:
-                    pil_img = Image.fromarray(rgb)  # Fallback: ohne exakte Größe
+                    pil_img = Image.fromarray(rgb)
 
-                # Tk Bild erzeugen und anzeigen
                 self._tk_img = ImageTk.PhotoImage(pil_img)
                 self.video_label.configure(image=self._tk_img)
                 self.video_label.image = self._tk_img
 
         except Exception as e:
-            print("Fehler im Live-Loop:", e)  # Debug: Fehler im Loop ausgeben
+            print("Fehler im Live-Loop:", e)
 
-        self._after_id = self.after(33, self._update_frame_loop)  # Loop erneut planen (ca. 30 FPS)
+        self._after_id = self.after(33, self._update_frame_loop)
 
     # ===== Snapshot (speichert in captures/) =====
     def _save_snapshot(self):
-        # Ohne last_frame gibt es nichts zu speichern
         if self.last_frame is None:
             self._set_status("Kein Frame vorhanden (Kamera läuft? / Bild importiert?)")
             return
 
-        # Zeitstempel erzeugen (ms genau)
         ts = datetime.now().strftime("%d%m%Y_%H%M%S_%f")[:-3]
-
-        # Dateiname enthält Kameraindex oder "img", falls kein Kameraindex vorhanden
         cam = (f"cam{self.current_cam_index}" if self.current_cam_index is not None else "img")
         filename = f"snapshot_{cam}_{ts}.png"
 
-        path = os.path.join(self.capture_dir, filename)  # Speicherpfad (captures/filename)
-        ok = cv2.imwrite(path, self.last_frame)  # Speichern mit OpenCV (BGR)
+        path = os.path.join(self.capture_dir, filename)
+        ok = cv2.imwrite(path, self.last_frame)
 
-        # Wenn Speichern fehlschlägt -> Abbruch
         if not ok:
             self._set_status("Speichern fehlgeschlagen")
             return
 
-        # ===== Freeze aktiv: Live stoppen + Bild aus Datei öffnen und anzeigen =====
         if self.freeze_after_capture_var.get() and self.cap is not None:
-            self.is_streaming = False  # Live-Loop stoppen (damit keine neuen Frames mehr angezeigt werden)
+            self.is_streaming = False
 
-            # geplanten after-loop abbrechen, damit garantiert nichts mehr läuft
             if self._after_id is not None:
                 try:
                     self.after_cancel(self._after_id)
@@ -489,37 +496,33 @@ class App(ctk.CTk):
                     pass
                 self._after_id = None
 
-            self.current_image_path = path  # Pfad des aktuell angezeigten Bildes merken
+            self.current_image_path = path
 
-            # ===== Das gespeicherte Bild wirklich aus der Datei laden (so wie "öffnen") =====
             try:
-                pil_img = Image.open(path).convert("RGB")  # Datei -> PIL -> RGB
-                rgb = np.array(pil_img)  # PIL -> numpy RGB
-                bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)  # zurück nach BGR (für spätere Exporte)
-                self.last_frame = bgr  # last_frame aktualisieren
+                pil_img = Image.open(path).convert("RGB")
+                rgb = np.array(pil_img)
+                bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                self.last_frame = bgr
 
-                self._display_rgb_in_video_label(rgb)  # Bild im linken Panel anzeigen
+                self._display_rgb_in_video_label(rgb)
                 self._set_status(f"Gespeichert & geöffnet (Freeze): {path}")
 
-            # ===== Fallback: wenn Datei laden schiefgeht -> wenigstens den Frame anzeigen =====
             except Exception as e:
                 rgb = cv2.cvtColor(self.last_frame, cv2.COLOR_BGR2RGB)
                 self._display_rgb_in_video_label(rgb)
                 self._set_status(f"Gespeichert (Freeze) - Laden fehlgeschlagen: {e}")
         else:
-            self._set_status(f"Gespeichert: {path}")  # Freeze aus: nur speichern und Status setzen
+            self._set_status(f"Gespeichert: {path}")
 
     # =========================
     # 8 ) Bild importieren (Dialog startet in captures/)
     # =========================
     def _import_image(self):
-        # Kamera anhalten, damit Live nicht direkt das importierte Bild überschreibt
         self._stop_camera()
 
-        # ===== Datei-Dialog zum Öffnen eines Bildes =====
         file_path = filedialog.askopenfilename(
             title="Bild importieren",
-            initialdir=self.capture_dir,  # startet im captures Ordner
+            initialdir=self.capture_dir,
             filetypes=[
                 ("Bilddateien", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff"),
                 ("PNG", "*.png"),
@@ -528,23 +531,20 @@ class App(ctk.CTk):
             ],
         )
 
-        # Wenn Benutzer abbricht -> Status
         if not file_path:
             self._set_status("Import abgebrochen")
             return
 
         try:
-            # Bild laden und in RGB umwandeln
             pil_img = Image.open(file_path).convert("RGB")
-            rgb = np.array(pil_img)  # RGB numpy
-            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)  # BGR für OpenCV-Export
+            rgb = np.array(pil_img)
+            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
-            self.last_frame = bgr  # last_frame setzen (damit Export/Save möglich ist)
-            self.current_image_path = file_path  # Pfad merken
-            self._display_rgb_in_video_label(rgb)  # Bild anzeigen
-            self._set_status(f"Importiert: {os.path.basename(file_path)}")  # Status
+            self.last_frame = bgr
+            self.current_image_path = file_path
+            self._display_rgb_in_video_label(rgb)
+            self._set_status(f"Importiert: {os.path.basename(file_path)}")
 
-        # Fehler -> Status + Popup
         except Exception as e:
             self._set_status("Import fehlgeschlagen")
             messagebox.showerror("Fehler", f"Bild konnte nicht importiert werden:\n{e}")
@@ -553,16 +553,13 @@ class App(ctk.CTk):
     # 9 ) Bild exportieren (Save-Dialog; startet in captures/)
     # =========================
     def _export_image(self):
-        # Ohne last_frame gibt es nichts zu exportieren
         if self.last_frame is None:
             self._set_status("Kein Bild zum Exportieren vorhanden")
             return
 
-        # Default Dateiname
         ts = datetime.now().strftime("%d%m%Y_%H%M%S")
         default_name = f"export_{ts}.png"
 
-        # Speichern-Dialog
         save_path = filedialog.asksaveasfilename(
             title="Bild exportieren",
             initialdir=self.capture_dir,
@@ -576,13 +573,12 @@ class App(ctk.CTk):
             ],
         )
 
-        # Abbruch
         if not save_path:
             self._set_status("Export abgebrochen")
             return
 
         try:
-            ok = cv2.imwrite(save_path, self.last_frame)  # OpenCV speichern (last_frame = BGR)
+            ok = cv2.imwrite(save_path, self.last_frame)
 
             if ok:
                 self._set_status(f"Exportiert: {save_path}")
@@ -601,15 +597,12 @@ class App(ctk.CTk):
             initialdir=os.path.abspath(self.capture_dir)
         )
 
-        # Abbruch
         if not target_dir:
             self._set_status("Export abgebrochen")
             return
 
         try:
             count = 0
-
-            # Alle Dateien im captures Ordner durchgehen
             for name in os.listdir(self.capture_dir):
                 src = os.path.join(self.capture_dir, name)
 
@@ -623,7 +616,7 @@ class App(ctk.CTk):
             self._set_status("Export aller Captures fehlgeschlagen")
             messagebox.showerror("Fehler", f"Konnte Captures nicht exportieren:\n{e}")
 
-    # ===== Status Text in GUI setzen =====
+    # ===== Status Text in GUI setzen (Kamera-Status links oben) =====
     def _set_status(self, msg: str):
         if self.cam_status_label is not None:
             self.cam_status_label.configure(text=msg)
@@ -709,26 +702,27 @@ class App(ctk.CTk):
     def _validation_process(self):
         time.sleep(0.4)
 
-        self._status("Lade Referenzdaten...", val_refcolor)
+        # Schritte: Status (info)
+        self._status("Lade Referenzdaten...", kind="info")
         self._update_progress(1, 5)
         time.sleep(0.1)
 
         soll = int(self.soll_ery)
 
-        self._status("KI analysiert Referenzbild...", val_loadcolor)
+        self._status("KI analysiert Referenzbild...", kind="info")
         self._update_progress(2, 5)
         time.sleep(0.8)
 
         ist = int(self.ki_ery)
 
-        self._status("Prüfe Ergebnis (Regel A)...", val_tolcolor)
+        self._status("Prüfe Ergebnis (Regel A)...", kind="info")
         self._update_progress(3, 5)
         time.sleep(0.05)
 
         ok, tol = self._regel_check(ist=ist, soll=soll)
         self.validierung_ok = bool(ok)
 
-        self._status("Ergebnis bereit (Bediener bestätigen)...", val_resultcolor)
+        self._status("Ergebnis bereit (Bediener bestätigen)...", kind="info")
         self._update_progress(4, 5)
         time.sleep(0.6)
 
@@ -763,27 +757,17 @@ class App(ctk.CTk):
 
         confirmed = messagebox.askyesno("Validierung", text)
 
-        if appearance == "dark":
-            val_yes = "#00FF66"
-            val_unknown = "#FFAA00"
-            val_no = "#FF4444"
-        else:
-            val_yes = "#005823"
-            val_unknown = "#A86D00"
-            val_no = "#DB0101"
-
+        # Ergebnis: Status (ok / warning / error) -> Farbe automatisch je Theme
         if confirmed and self.validierung_ok:
-            self._status("Validierung bestätigt ✅", val_yes)
+            self._status("Validierung bestätigt ✅", kind="ok")
         elif confirmed and not self.validierung_ok:
-            self._status("Bestätigt, aber NICHT bestanden ⚠️", val_unknown)
+            self._status("Bestätigt, aber NICHT bestanden ⚠️", kind="warning")
         else:
-            self._status("Nicht bestätigt ❌", val_no)
+            self._status("Nicht bestätigt ❌", kind="error")
 
         self.btn_validate.configure(state="normal")
 
-    def _status(self, text: str, farbe: str):
-        self.after(0, lambda: self.status_label.configure(text=text, text_color=farbe))
-
+    # ===== Progress GUI =====
     def _update_progress(self, count: int, total: int):
         total = max(1, int(total))
         percent = max(0, min(count / total, 1))
@@ -818,7 +802,11 @@ class App(ctk.CTk):
         if len(detected) == 0:
             camera_values = ["Kamera auswählen...", "Keine Kamera gefunden"]
 
-        self.camera_select = ctk.CTkOptionMenu(controls_frame, values=camera_values, variable=self.camera_var)
+        self.camera_select = ctk.CTkOptionMenu(
+            controls_frame,
+            values=camera_values,
+            variable=self.camera_var
+        )
         self.camera_select.grid(row=0, column=0, padx=5)
 
         self.freeze_checkbox = ctk.CTkCheckBox(
@@ -868,18 +856,13 @@ class App(ctk.CTk):
         ctk.CTkButton(bottom_controls, text="Bild importieren", command=self._import_image).grid(row=0, column=0, padx=5)
         ctk.CTkButton(bottom_controls, text="Bild exportieren", command=self._export_image).grid(row=0, column=1, padx=5)
 
-        # =========================
-        # 12.1 ) Button: "Bild aufnehmen" (mit disabled/normal)
-        # =========================
-        # NEU:
-        # - Wir speichern eine Referenz (self.capture_btn),
-        #   damit wir den Button später ausgrauen/aktivieren können.
+        # Button: "Bild aufnehmen"
         self.capture_btn = ctk.CTkButton(bottom_controls, text="Bild aufnehmen", command=self._save_snapshot)
         self.capture_btn.grid(row=0, column=2, padx=5)
 
         ctk.CTkButton(bottom_controls, text="Alle Captures exportieren", command=self._export_all_captures).grid(row=0, column=3, padx=5)
 
-        # NEU: Direkt nach dem Erstellen einmal den Zustand setzen
+        # Direkt nach dem Erstellen einmal den Zustand setzen
         self._update_capture_button_state()
 
         right_panel = ctk.CTkFrame(main_frame, width=360)
@@ -902,7 +885,6 @@ class App(ctk.CTk):
             justify="left",
             text_color="black"
         )
-
         analysis_label.pack(side="left", padx=10, pady=10)
         self.analysis_label = analysis_label
 
@@ -965,7 +947,8 @@ class App(ctk.CTk):
 
         ctk.CTkButton(button_row, text="AutoAdjust", width=80).pack(side="left", padx=5, pady=(10, 6))
 
-        self.status_label = ctk.CTkLabel(function_frame, text="Bereit", text_color="#00B7FF")
+        # Status Label (dieses Label bekommt die Validierungsfarben)
+        self.status_label = ctk.CTkLabel(function_frame, text=self._status_text, text_color="#00B7FF")
         self.status_label.pack(pady=(0, 8))
 
         self.progress_frame = ctk.CTkFrame(function_frame, fg_color="transparent")
@@ -982,6 +965,9 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=16, weight="bold"),
         )
         self.progress_text.pack()
+
+        # Am Ende: Status einmal sauber anwenden (damit Theme + Farbe stimmt)
+        self._apply_status_style_on_theme_change()
 
     # =========================
     # 13 ) Sauber schließen
