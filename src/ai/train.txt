@@ -1,0 +1,7 @@
+run
+python src/ai/train.py --data data
+py src/ai/train.py --data data
+
+test
+python src/ai/infer_count_clean_v4.py --model runs/viscell_unet_512_cpu_classfix/model_best.keras --image data/batch_A/stained/A_st_001.png --class_weights 1,0.3,1.2 --class_margin 0.02 --ambiguous_policy ery --merge_dist 14 --quantile 0.99429
+python src/ai/infer_count_clean_v6.py --model runs/viscell_unet_512_cpu_classfix/model_best.keras --image data/batch_A/stained/A_st_001.png --debug
