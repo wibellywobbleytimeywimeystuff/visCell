@@ -18,3 +18,8 @@ Live-Aktualisierung des Dropdown Menüs
     - das Programm muss neu gestartet werden, damit neue Kameras angezeigt werden
     idee: zugriff auf windows, sobald ein neues Gerät erkannt wird
     Lösung: bei einstecken eines neuen Gerätes, wird dann automatisch das Dropdown Menü aktualisiert
+
+Schriftfarbwechsel nach validierung
+ - Schriftfarbe bleibt nicht kostant bei Farbwechsel
+ - Definierung einer Variable die sich die Farbe merkt
+ - if funktion die guckt welche was angezeigt wird und wenn farbe gewechselt wird entweder beibehält oder andere nimmt, für eine bessere Anzeige fürs bessere Lesen
