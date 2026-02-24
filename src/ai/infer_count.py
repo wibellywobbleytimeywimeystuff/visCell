@@ -104,19 +104,61 @@ def run_inference(image_path: Path, model_path: Path, config: Config):
 
         # ===== Modell: Vorhersage =====
         pred = model.predict(x, verbose=0)
-        centers = pred["centers"][0]  # Heatmap der Zellzentren (3 Kanäle)
-        mask = pred["mask"][0]  # Maske gültiger Bereiche (1 Kanal)
+        centers = pred["centers"][0]
+# DEBUG: Kanal-Statistiken & Peaks (unabhängig von Klassen-Namen)
+if getattr(args, "debug_channels", False):
+    if "debug_totals" not in locals():
+        debug_totals = [0, 0, 0]
+        debug_tiles = 0
+    debug_tiles += 1
+
+    # Stats je Kanal
+    for ci in range(min(centers.shape[-1], 3)):
+        hm = centers[..., ci].astype(np.float32)
+        mx = float(hm.max()) if hm.size else 0.0
+        mn = float(hm.min()) if hm.size else 0.0
+        mean = float(hm.mean()) if hm.size else 0.0
+
+        pp = PeakParams(min_peak_dist=18, abs_seed_thresh=0.03, quantile=0.995, max_component_area=25, max_fg_frac=0.01)
+        pc = int(count_peaks(hm, pp))
+        debug_totals[ci] += pc
+
+        # nur die ersten 2 Tiles ausführlich drucken
+        if debug_tiles <= 2:
+            print(f"[DEBUG] tile#{debug_tiles} channel{ci}: min={mn:.6f} mean={mean:.6f} max={mx:.6f} peaks={pc}")
+
+    if debug_tiles == 1:
+        print(f"[DEBUG] CLASSES mapping = {CLASSES} (channel0-> {CLASSES[0]}, channel1-> {CLASSES[1]}, channel2-> {CLASSES[2]})")
+        mask = pred["mask"][0]
+
+        print("centers min/max:", float(centers.min()), float(centers.max()))
+        print("mask    min/max:", float(mask.min()), float(mask.max()))
 
         # ===== Heatmaps zu Zählwerte =====
         tile_counts = count_from_maps(
-            centers, mask, config.tile, CountParams()
-        )  # Sucht Peaks in Heatmap und zählt pro Klasse
+            centers,
+            mask,
+            config.tile,
+            CountParams(
+                min_peak_dist=18,
+                abs_seed_thresh=0.03,
+                quantile=0.995,
+                max_component_area=25,
+                max_fg_frac=0.01,
+            ),
+        )
 
         # ===== Tile: summieren =====
         for k, v in tile_counts.items():
             total_counts[k] += int(v)  # Dict mit beiden Modell-Outputs
 
-    return total_counts
+if getattr(args, "debug_channels", False):
+    try:
+        print(f"[DEBUG] total peak-counts per centers-channel: ch0={debug_totals[0]}, ch1={debug_totals[1]}, ch2={debug_totals[2]}")
+    except Exception:
+        pass
+return total_counts
+
 
 
 # =========================

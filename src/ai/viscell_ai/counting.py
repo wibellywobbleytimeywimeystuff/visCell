@@ -1,109 +1,69 @@
 """Modul: counting.py
 Beschreibung:
-Dieses Skript wertet die vom KI-Modell erzeugten Heatmaps aus und zählt erkannte Zellzentren (Ery, Leuko, Hefe) anhand von Masken, Peak-Findung und Segmentierung.
+Robustes Zählen aus Centers-Heatmaps ohne Mask-Gating, ohne Watershed.
+Diese Version ist bewusst stabil gegen flache/plateauartige Heatmaps und verhindert 0/0/0
+durch fragile Binär-Morphologie.
 
 Autor: Marlon Aust
 Projektname: visCell
-Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse
-von mikroskopischen Zellstrukturen.
 """
-
-# =========================
-# 1 ) Einbinden der Bibliotheken
-# =========================
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Tuple
 
-import cv2
 import numpy as np
+import cv2
 
 from .config import CLASSES, TileSpec
-from .peaks import find_peaks
+from .peaks import PeakParams, count_peaks
 
 
-# =========================
-# 2 ) Klasse: CountParams
-# =========================
-# Zählparameter
 @dataclass
 class CountParams:
-    mask_thresh: float = 0.35
-    center_seed_thresh: float = 0.60
-
-    min_peak_dist: int = 14
-
-    min_region_area: int = 120
-
-    class_conf_thresh: float = 0.25
+    # Peak-Parameter (werden an peaks.py durchgereicht)
+    min_peak_dist: int = 18
+    max_component_area: int = 25
+    abs_seed_thresh: float = 0.03
+    quantile: float = 0.995
+    max_fg_frac: float = 0.01
 
 
 # =========================
 # 3 ) Crop: Maps
 # =========================
-# Schneidet Randbereiche aus prediction-maps heraus --> Zählung nicht verfälscht
 def safe_crop_maps(centers: np.ndarray, mask: np.ndarray, tile_spec: TileSpec):
-    m = int(tile_spec.safe_margin)
+    m = int(getattr(tile_spec, "safe_margin", 0) or 0)
     if m <= 0:
         return centers, mask
     return centers[m:-m, m:-m, :], mask[m:-m, m:-m, :]
 
 
 # =========================
-# 4 ) Zählung
+# 4 ) Zählung (robust)
 # =========================
-# Zählt Zentren anhand der Heatmaps und Maske
-# Maske normalisieren (0,1) → Seeds aus Heatmap → Watershed-Segmentierung → Klassenzuordnung
 def count_from_maps(
     centers: np.ndarray,
     mask: np.ndarray,
     tile_spec: TileSpec,
     params: CountParams = CountParams(),
 ) -> Dict[str, int]:
-    centers_crop, mask_crop = safe_crop_maps(centers, mask, tile_spec)
+    centers_crop, _mask_crop = safe_crop_maps(centers, mask, tile_spec)
 
-    # Maske normalisieren (0,1)
-    mask_bin = (mask_crop[..., 0] >= params.mask_thresh).astype(np.uint8) * 255
-    if mask_bin.max() == 0:
-        return {c: 0 for c in CLASSES}
+    # Defensive: falls Modell nur 1 Kanal liefert
+    if centers_crop.ndim != 3 or centers_crop.shape[-1] < len(CLASSES):
+        raise ValueError(f"centers shape expected (H,W,{len(CLASSES)}), got {centers_crop.shape}")
 
-    # Seeds aus Heatmap
-    center_max = np.max(centers_crop, axis=-1)
-    seed_bin = (center_max >= params.center_seed_thresh).astype(np.uint8) * 255
-    seed_peaks = find_peaks(seed_bin, min_dist=params.min_peak_dist)
-
-    num_labels, seed_markers = cv2.connectedComponents(
-        (seed_peaks > 0).astype(np.uint8)
+    peak_params = PeakParams(
+        min_peak_dist=int(params.min_peak_dist),
+        max_component_area=int(params.max_component_area),
+        abs_seed_thresh=float(params.abs_seed_thresh),
+        quantile=float(params.quantile),
+        max_fg_frac=float(params.max_fg_frac),
     )
-    if num_labels <= 1:
-        return {c: 0 for c in CLASSES}
-
-    dummy_rgb = cv2.cvtColor(mask_bin, cv2.COLOR_GRAY2BGR)
-    markers = seed_markers.astype(np.int32)
-
-    # Watershed-Segmentierung
-    cv2.watershed(dummy_rgb, markers)
 
     counts = {c: 0 for c in CLASSES}
-    for region_id in range(1, markers.max() + 1):
-        region_mask = markers == region_id
-        area = int(region_mask.sum())
-        if area < params.min_region_area:
-            continue
-
-        # Klassenzuordnung
-        class_scores = []
-        for ci, cls in enumerate(CLASSES):
-            class_scores.append(
-                float(centers_crop[..., ci][region_mask].mean() if area > 0 else 0.0)
-            )
-
-        best_ci = int(np.argmax(class_scores))
-        best_score = float(class_scores[best_ci])
-        if best_score < params.class_conf_thresh:
-            continue
-
-        counts[CLASSES[best_ci]] += 1
-
+    for ci, cls in enumerate(CLASSES):
+        hm = centers_crop[..., ci].astype(np.float32)
+        counts[cls] = int(count_peaks(hm, peak_params))
     return counts

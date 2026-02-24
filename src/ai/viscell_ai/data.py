@@ -26,10 +26,24 @@ from .config import CLASSES, TileSpec
 # 2 ) Import und Laden: JSONs
 # =========================
 def load_points_json(json_path: Path) -> Tuple[str, List[dict]]:
+    """
+    Lädt eine *_points.json und normalisiert die Klassenbezeichnung.
+
+    In euren JSONs kommt die Klasse als Schlüssel "class" (z.B. {"x":..,"y":..,"class":"ery"}).
+    Intern wird zusätzlich "c" verwendet, damit ältere Codepfade weiter funktionieren.
+    """
     import json as _json
 
     obj = _json.loads(json_path.read_text(encoding="utf-8"))
-    return obj.get("image", ""), obj.get("points", [])
+    pts = obj.get("points", []) or []
+    norm_pts: List[dict] = []
+    for p in pts:
+        # akzeptiert sowohl "class" als auch das ältere "c"
+        cls = p.get("c", None)
+        if cls is None:
+            cls = p.get("class", None)
+        norm_pts.append({"x": p.get("x", 0), "y": p.get("y", 0), "c": cls, "class": cls})
+    return obj.get("image", ""), norm_pts
 
 
 # =========================
@@ -77,7 +91,8 @@ def _points_in_tile(
     for p in points:
         x, y = float(p.get("x", 0)), float(p.get("y", 0))
         if x0 <= x < x1 and y0 <= y < y1:
-            tile_points.append({"x": x - x0, "y": y - y0, "c": p.get("c")})
+            cls = p.get("c") if p.get("c") is not None else p.get("class") if p.get("c") is not None else p.get("class")
+            tile_points.append({"x": x - x0, "y": y - y0, "c": cls, "class": cls})
     return tile_points
 
 
@@ -132,7 +147,7 @@ def generate_targets(
     mask = np.zeros((tile_h, tile_w, 1), dtype=np.float32)
 
     for p in tile_points:
-        cls = p.get("c")
+        cls = p.get("c") if p.get("c") is not None else p.get("class")
         if cls not in CLASSES:
             continue
         cx, cy = float(p["x"]), float(p["y"])

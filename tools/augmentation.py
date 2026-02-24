@@ -204,12 +204,12 @@ class Augmentation(ctk.CTk):
         return BildInfo(pfad=bild_pfad, breite=w, hoehe=h), img
 
     # ===== Laden: JSON =====
-    def _lade_label_json(
-        self, stem: str
-    ) -> dict | None:  # labelmaker speichert <stem>_points.json in data/labels_points
-        pfad = self.ordner_labels / f"{stem}_points.json"
-        if not pfad.exists():
+    def _lade_label_json(self, stem: str) -> dict | None:
+        # rekursiv in allen Subordnern suchen
+        treffer = list(self.ordner_labels.rglob(f"{stem}_points.json"))
+        if not treffer:
             return None
+        pfad = treffer[0]  # oder: wenn mehrere möglich, sauberer auswählen
         try:
             return json.loads(pfad.read_text(encoding="utf-8"))
         except Exception:

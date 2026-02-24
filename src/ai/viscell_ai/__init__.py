@@ -1,26 +1,29 @@
 """Modul: __init__.py
 Beschreibung:
-Dieses Skript bündelt zentrale Funktionen und Klassen des Pakets, sodass sie über das Paket importiert werden können.
+Dieses Paket enthält Konfiguration, Datenstrukturen und (optional) Zähl-/Postprocessing-Funktionen
+für die visCell-KI.
+
+Hinweis:
+Importe von rechen-/opencv-lastigen Modulen werden bewusst verzögert, damit ein Import von
+viscell_ai.config nicht durch Postprocessing-Implementierungen blockiert wird.
 
 Autor: Marlon Aust
 Projektname: visCell
-Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse
-von mikroskopischen Zellstrukturen.
 """
+from __future__ import annotations
+
+# Re-Exports (leichtgewichtig)
+from .config import Config, CLASSES, TileSpec  # noqa: F401
+from .counting import CountParams  # noqa: F401
+
+# Zählfunktionen werden lazy importiert, damit "config" immer importierbar bleibt.
+def count_from_maps(*args, **kwargs):  # noqa: D401
+    """Lazy wrapper um viscell_ai.counting.count_from_maps."""
+    from .counting import count_from_maps as _cfm  # local import
+    return _cfm(*args, **kwargs)
 
 
-# =========================
-# 1 ) Einbinden der Bibliotheken
-# =========================
-from .config import Config, TileSpec, CLASSES
-from .model import build_unet
-from .counting import count_from_maps, safe_crop_maps, CountParams
-from .data import (
-    load_points_json,
-    list_label_jsons,
-    tile_image_and_points,
-    preprocess_image_bgr,
-    generate_targets,
-    image_cell_count,
-)
-from .losses import focal_bce
+def safe_crop_maps(*args, **kwargs):
+    """Lazy wrapper um viscell_ai.counting.safe_crop_maps."""
+    from .counting import safe_crop_maps as _scm  # local import
+    return _scm(*args, **kwargs)
