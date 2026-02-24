@@ -1,195 +1,330 @@
 """
-Modul: infer_count.py
-Beschreibung:
-Dieses Skript führt die KI-Inferenz (Vorhersage) zur Analyse mikroskopischer Zellstrukturen durch.
-Ein vollständiges Mikroskopbild wird dabei in überlappende Bildkacheln (Tiles) zerlegt. Für jedes
-Tile berechnet das KI-Modell eine Center-Heatmap (Zellzentren) sowie eine Maske. Anschließend
-werden die Ergebnisse pro Tile ausgewertet und zu einer Gesamtzählung (Ery, Hefe, Leuko)
-zusammengeführt.
+infer_count_clean_v6.py
 
-Autor: Marlon Aust
-Projektname: visCell
-Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse
-von mikroskopischen Zellstrukturen.
+v6 = v5 + adaptive Leuko/Hefe Mindestkonfidenz abhängig vom tile threshold (thr).
+
+Problem aus euren Tests:
+- A_st_001: echte Leukos sind da, aber die Schutzregeln drücken 15/16 Leuko-Winner zurück -> nur 1 Leuko bleibt.
+- A_st_006: viele Fake-Leuko-Winner, aber werden alle korrekt zurückgedrückt -> 0 Leuko bleibt (gut).
+
+Lösung:
+- Statt eines einzigen absoluten leuko_min nutzen wir:
+    leuko_min_eff = max(leuko_min_abs, leuko_min_rel * thr_tile)
+  Dadurch:
+  - Bei Bildern/Tiles mit hohem thr (z.B. A_st_006 thr~0.23) wird Leuko automatisch strenger.
+  - Bei Bildern/Tiles mit niedrigerem thr (A_st_001 thr~0.14) bleibt Leuko weniger streng -> echte Leukos können passieren.
+
+Analog für Hefe:
+    hefe_min_eff = max(hefe_min_abs, hefe_min_rel * thr_tile)
+
+Zusätzlich bleibt:
+- leuko_margin_over_ery (raw) als extra Schutz gegen "Leuko knapp über Ery".
+
+Startwerte (basierend auf euren Logs):
+- quantile 0.9943
+- class_weights 1,0.3,1.2
+- class_margin 0.02
+- leuko_min_abs 0.06
+- leuko_min_rel 0.55   (bei thr=0.23 -> 0.127; bei thr=0.14 -> 0.077)
+- leuko_margin_over_ery 0.015
+
+Aufruf:
+python src/ai/infer_count_clean_v6.py --model ... --image ... --debug
 """
 
-# =========================
-# 1 ) Einbinden der Bibliotheken
-# =========================
 from __future__ import annotations
 import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-os.environ["OMP_NUM_THREADS"] = "4"
-os.environ["TF_NUM_INTRAOP_THREADS"] = "4"
-os.environ["TF_NUM_INTEROP_THREADS"] = "1"
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict, Iterable, List, Tuple
 
 import cv2
 import numpy as np
 import tensorflow as tf
 
-tf.config.threading.set_intra_op_parallelism_threads(4)
-tf.config.threading.set_inter_op_parallelism_threads(1)
+CLASSES = ("ery", "hefe", "leuko")
+IDX = {c:i for i,c in enumerate(CLASSES)}
 
-from viscell_ai.config import Config, CLASSES, TileSpec
-from viscell_ai.data import preprocess_image_bgr
-from viscell_ai.counting import count_from_maps, CountParams
+@dataclass(frozen=True)
+class TileSpec:
+    tile: int = 512
+    overlap: int = 64
 
+@dataclass(frozen=True)
+class Peak:
+    x: int
+    y: int
+    cls: str
+    conf: float  # peak strength in center_max
 
-# =========================
-# 2 ) Tiles: Koordinaten berechnen
-# =========================
-# ===== Schrittweite (Overlap berücksichtigt) =====
-def _iter_tiles(image_width: int, image_height: int, tile_spec: TileSpec):
+def _iter_tiles(w: int, h: int, spec: TileSpec) -> Iterable[Tuple[int, int, int, int]]:
+    step = spec.tile - spec.overlap
+    xs = list(range(0, max(w - spec.tile, 0) + 1, step)) or [0]
+    ys = list(range(0, max(h - spec.tile, 0) + 1, step)) or [0]
+    last_x = max(w - spec.tile, 0)
+    last_y = max(h - spec.tile, 0)
+    if xs[-1] != last_x: xs.append(last_x)
+    if ys[-1] != last_y: ys.append(last_y)
+    for y0 in ys:
+        for x0 in xs:
+            yield x0, y0, x0 + spec.tile, y0 + spec.tile
 
-    step_x_pixels = tile_spec.tile_w - tile_spec.overlap
-    step_y_pixels = tile_spec.tile_h - tile_spec.overlap
+def _preprocess(tile_bgr: np.ndarray) -> np.ndarray:
+    rgb = cv2.cvtColor(tile_bgr, cv2.COLOR_BGR2RGB)
+    return (rgb.astype(np.float32) / 255.0)[None, ...]
 
-    # ===== Startpositionen für alle Tiles bestimmen =====
-    x_positions = list(
-        range(0, max(image_width - tile_spec.tile_w, 0) + 1, step_x_pixels)
-    ) or [0]
-    y_positions = list(
-        range(0, max(image_height - tile_spec.tile_h, 0) + 1, step_y_pixels)
-    ) or [0]
+def _extract_centers(pred) -> np.ndarray:
+    if isinstance(pred, dict):
+        return pred["centers"][0]
+    if isinstance(pred, (list, tuple)):
+        arr = pred[0]
+        return arr[0] if hasattr(arr, "__getitem__") and getattr(arr, "ndim", 0) >= 3 else arr
+    return pred[0] if getattr(pred, "ndim", 0) == 4 else pred
 
-    # ===== Letztes Tile an den Rand schieben =====
-    # Bildende garantiert abgedecken
-    if x_positions[-1] != max(image_width - tile_spec.tile_w, 0):
-        x_positions.append(max(image_width - tile_spec.tile_w, 0))
-    if y_positions[-1] != max(image_height - tile_spec.tile_h, 0):
-        y_positions.append(max(image_height - tile_spec.tile_h, 0))
+def _robust_thr(hm: np.ndarray, quantile: float, abs_thresh: float, max_fg: float) -> float:
+    hm_f = hm.astype(np.float32)
+    mx = float(hm_f.max()) if hm_f.size else 0.0
+    if mx <= 1e-8:
+        return 1.0
+    for q in (quantile, 0.997, 0.999, 0.9995):
+        thr = float(np.quantile(hm_f, q))
+        thr = max(abs_thresh, thr)
+        fg = float((hm_f >= thr).mean())
+        if fg <= max_fg:
+            return thr
+    thr = float(np.quantile(hm_f, quantile))
+    return max(abs_thresh, thr)
 
-    # ===== Koordinaten als (x0, y0, x1, y1) ausgeben =====
-    for y0 in y_positions:
-        for x0 in x_positions:
-            yield x0, y0, x0 + tile_spec.tile_w, y0 + tile_spec.tile_h
+def _peak_mask(hm: np.ndarray, thr: float, detect_dist: int) -> np.ndarray:
+    k = max(3, int(detect_dist) * 2 + 1)
+    kernel = np.ones((k, k), np.uint8)
+    hm_f = hm.astype(np.float32)
+    dil = cv2.dilate(hm_f, kernel)
+    return (hm_f >= thr) & (hm_f == dil)
 
+def _components_centroids(mask: np.ndarray, max_area: int) -> List[Tuple[int, int, int]]:
+    u8 = (mask.astype(np.uint8) * 255)
+    n, _, stats, centroids = cv2.connectedComponentsWithStats((u8 > 0).astype(np.uint8), connectivity=8)
+    out: List[Tuple[int, int, int]] = []
+    for i in range(1, n):
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        if 0 < area <= max_area:
+            cx, cy = centroids[i]
+            out.append((int(round(cx)), int(round(cy)), area))
+    return out
 
-# =========================
-# 3 ) KI-Inferenz + Zählung
-# =========================
-def run_inference(image_path: Path, model_path: Path, config: Config):
-    # ===== Eingabebild laden =====
-    image_bgr = cv2.imread(str(image_path))
-    if image_bgr is None:  # Fehlermeldung
-        raise FileNotFoundError(f"Bild konnte nicht gelesen werden: {image_path}")
+def _nms_by_distance(peaks: List[Peak], merge_dist: int) -> List[Peak]:
+    if not peaks: return []
+    peaks_sorted = sorted(peaks, key=lambda p: p.conf, reverse=True)
+    keep: List[Peak] = []
+    min_d2 = float(merge_dist * merge_dist)
+    for p in peaks_sorted:
+        ok = True
+        for k in keep:
+            dx = float(p.x - k.x)
+            dy = float(p.y - k.y)
+            if dx*dx + dy*dy < min_d2:
+                ok = False
+                break
+        if ok:
+            keep.append(p)
+    return keep
 
-    # ===== Modell laden =====
+def _pick_class(
+    vec3: np.ndarray,
+    class_weights: np.ndarray,
+    class_margin: float,
+    ambiguous_policy: str,
+    leuko_min_abs: float,
+    leuko_min_rel: float,
+    hefe_min_abs: float,
+    hefe_min_rel: float,
+    leuko_margin_over_ery: float,
+    thr_tile: float,
+) -> Tuple[str, str]:
+    """
+    returns (picked_class, reason)
+    reason in {"ok","margin","leuko_guard","hefe_guard"}
+    """
+    v_raw = vec3.astype(np.float32)
+    v = v_raw * class_weights.astype(np.float32)
+
+    idx = np.argsort(v)[::-1]
+    top = int(idx[0]); second = int(idx[1])
+    top1 = float(v[top]); top2 = float(v[second])
+    if (top1 - top2) < float(class_margin):
+        return ("" if ambiguous_policy == "drop" else "ery", "margin")
+
+    leuko_min_eff = max(float(leuko_min_abs), float(leuko_min_rel) * float(thr_tile))
+    hefe_min_eff  = max(float(hefe_min_abs),  float(hefe_min_rel)  * float(thr_tile))
+
+    if top == IDX["leuko"]:
+        if float(v_raw[IDX["leuko"]]) < leuko_min_eff:
+            return ("ery", "leuko_guard")
+        if (float(v_raw[IDX["leuko"]]) - float(v_raw[IDX["ery"]])) < float(leuko_margin_over_ery):
+            return ("ery", "leuko_guard")
+    if top == IDX["hefe"]:
+        if float(v_raw[IDX["hefe"]]) < hefe_min_eff:
+            return ("ery", "hefe_guard")
+
+    return (CLASSES[top], "ok")
+
+def infer_and_count(
+    model_path: Path,
+    image_path: Path,
+    spec: TileSpec,
+    quantile: float,
+    abs_thresh: float,
+    max_fg: float,
+    detect_dist: int,
+    merge_dist: int,
+    max_area: int,
+    peak_rel: float,
+    class_weights: np.ndarray,
+    class_margin: float,
+    ambiguous_policy: str,
+    leuko_min_abs: float,
+    leuko_min_rel: float,
+    hefe_min_abs: float,
+    hefe_min_rel: float,
+    leuko_margin_over_ery: float,
+    debug: bool,
+) -> Dict[str, int]:
+    img = cv2.imread(str(image_path))
+    if img is None:
+        raise FileNotFoundError(f"Kann Bild nicht lesen: {image_path}")
     model = tf.keras.models.load_model(str(model_path), compile=False)
 
-    # ===== Bildgröße & Zähl-Container =====
-    image_height, image_width = image_bgr.shape[:2]
-    total_counts = {c: 0 for c in CLASSES}  # z.B. {"ery": 0, "hefe": 0, "leuko": 0}
+    h, w = img.shape[:2]
+    all_peaks: List[Peak] = []
+    tiles = list(_iter_tiles(w, h, spec))
 
-    # ===== Bild in Tiles zerlegen, pro Tile auswerten =====
-    for x0, y0, x1, y1 in _iter_tiles(image_width, image_height, config.tile):
-        tile_bgr = image_bgr[y0:y1, x0:x1]
+    raw_wins = {c: 0 for c in CLASSES}
+    forced = {"margin": 0, "leuko_guard": 0, "hefe_guard": 0}
 
-        if (  # Rand-Tiles: ggf. mit schwarzen Pixeln auffüllen
-            tile_bgr.shape[0] != config.tile.tile_h
-            or tile_bgr.shape[1] != config.tile.tile_w
-        ):
-            padded = np.zeros(
-                (config.tile.tile_h, config.tile.tile_w, 3), dtype=tile_bgr.dtype
+    if debug:
+        print(f"[DEBUG] image={w}x{h}, tiles={len(tiles)}, tile={spec.tile}, overlap={spec.overlap}")
+        print(f"[DEBUG] weights={class_weights.tolist()} class_margin={class_margin} ambiguous_policy={ambiguous_policy}")
+        print(f"[DEBUG] leuko_min_abs={leuko_min_abs} leuko_min_rel={leuko_min_rel} hefe_min_abs={hefe_min_abs} hefe_min_rel={hefe_min_rel} leuko_margin_over_ery={leuko_margin_over_ery}")
+
+    for ti, (x0, y0, x1, y1) in enumerate(tiles, start=1):
+        tile = img[y0:y1, x0:x1]
+        if tile.shape[0] != spec.tile or tile.shape[1] != spec.tile:
+            pad = np.zeros((spec.tile, spec.tile, 3), dtype=tile.dtype)
+            pad[:tile.shape[0], :tile.shape[1]] = tile
+            tile = pad
+
+        pred = model.predict(_preprocess(tile), verbose=0)
+        centers = _extract_centers(pred)
+        centers3 = centers[..., :3].astype(np.float32)
+        center_max = np.max(centers3, axis=-1)
+
+        thr = _robust_thr(center_max, quantile=quantile, abs_thresh=abs_thresh, max_fg=max_fg)
+        pmask = _peak_mask(center_max, thr=thr, detect_dist=detect_dist)
+        if float(pmask.mean()) > 0.02:
+            continue
+        cents = _components_centroids(pmask, max_area=max_area)
+
+        if debug and ti <= 2:
+            print(f"[DEBUG] tile#{ti} thr={thr:.6f} detect_peaks={len(cents)} center_max.max={float(center_max.max()):.6f}")
+
+        for cx, cy, _ in cents:
+            cy0 = int(np.clip(cy, 0, centers3.shape[0]-1))
+            cx0 = int(np.clip(cx, 0, centers3.shape[1]-1))
+            peak_strength = float(center_max[cy0, cx0])
+            if peak_strength < float(thr) * float(peak_rel):
+                continue
+
+            vec = centers3[cy0, cx0, :]
+            widx = int(np.argmax(vec * class_weights))
+            raw_wins[CLASSES[widx]] += 1
+
+            picked, reason = _pick_class(
+                vec, class_weights, class_margin, ambiguous_policy,
+                leuko_min_abs, leuko_min_rel, hefe_min_abs, hefe_min_rel,
+                leuko_margin_over_ery, thr_tile=thr
             )
-            padded[: tile_bgr.shape[0], : tile_bgr.shape[1]] = tile_bgr
-            tile_bgr = padded
+            if reason != "ok":
+                forced[reason] += 1
+            if picked == "":
+                continue
+            all_peaks.append(Peak(x=x0 + cx, y=y0 + cy, cls=picked, conf=peak_strength))
 
-        # ===== Modell: Preprocessing =====
-        #  Normalisierung / Format-Anpassung
-        x = preprocess_image_bgr(tile_bgr)[None, ...]  # -> Batch-Dimension hinzufügen
+    if debug:
+        print(f"[DEBUG] raw winners (weighted): {raw_wins}")
+        print(f"[DEBUG] forced reasons: {forced}")
+        print(f"[DEBUG] peaks before NMS: {len(all_peaks)}")
 
-        # ===== Modell: Vorhersage =====
-        pred = model.predict(x, verbose=0)
-        centers = pred["centers"][0]
-# DEBUG: Kanal-Statistiken & Peaks (unabhängig von Klassen-Namen)
-if getattr(args, "debug_channels", False):
-    if "debug_totals" not in locals():
-        debug_totals = [0, 0, 0]
-        debug_tiles = 0
-    debug_tiles += 1
+    merged = _nms_by_distance(all_peaks, merge_dist=merge_dist)
 
-    # Stats je Kanal
-    for ci in range(min(centers.shape[-1], 3)):
-        hm = centers[..., ci].astype(np.float32)
-        mx = float(hm.max()) if hm.size else 0.0
-        mn = float(hm.min()) if hm.size else 0.0
-        mean = float(hm.mean()) if hm.size else 0.0
+    if debug:
+        print(f"[DEBUG] peaks after  NMS: {len(merged)}")
 
-        pp = PeakParams(min_peak_dist=18, abs_seed_thresh=0.03, quantile=0.995, max_component_area=25, max_fg_frac=0.01)
-        pc = int(count_peaks(hm, pp))
-        debug_totals[ci] += pc
+    totals = {c: 0 for c in CLASSES}
+    for p in merged:
+        totals[p.cls] += 1
+    return totals
 
-        # nur die ersten 2 Tiles ausführlich drucken
-        if debug_tiles <= 2:
-            print(f"[DEBUG] tile#{debug_tiles} channel{ci}: min={mn:.6f} mean={mean:.6f} max={mx:.6f} peaks={pc}")
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model", type=Path, required=True)
+    ap.add_argument("--image", type=Path, required=True)
 
-    if debug_tiles == 1:
-        print(f"[DEBUG] CLASSES mapping = {CLASSES} (channel0-> {CLASSES[0]}, channel1-> {CLASSES[1]}, channel2-> {CLASSES[2]})")
-        mask = pred["mask"][0]
+    ap.add_argument("--tile", type=int, default=512)
+    ap.add_argument("--overlap", type=int, default=64)
 
-        print("centers min/max:", float(centers.min()), float(centers.max()))
-        print("mask    min/max:", float(mask.min()), float(mask.max()))
+    ap.add_argument("--quantile", type=float, default=0.9943)
+    ap.add_argument("--abs_thresh", type=float, default=0.0)
+    ap.add_argument("--max_fg", type=float, default=0.01)
 
-        # ===== Heatmaps zu Zählwerte =====
-        tile_counts = count_from_maps(
-            centers,
-            mask,
-            config.tile,
-            CountParams(
-                min_peak_dist=18,
-                abs_seed_thresh=0.03,
-                quantile=0.995,
-                max_component_area=25,
-                max_fg_frac=0.01,
-            ),
-        )
+    ap.add_argument("--detect_dist", type=int, default=6)
+    ap.add_argument("--merge_dist", type=int, default=14)
 
-        # ===== Tile: summieren =====
-        for k, v in tile_counts.items():
-            total_counts[k] += int(v)  # Dict mit beiden Modell-Outputs
+    ap.add_argument("--max_area", type=int, default=120)
+    ap.add_argument("--peak_rel", type=float, default=1.0)
 
-if getattr(args, "debug_channels", False):
-    try:
-        print(f"[DEBUG] total peak-counts per centers-channel: ch0={debug_totals[0]}, ch1={debug_totals[1]}, ch2={debug_totals[2]}")
-    except Exception:
-        pass
-return total_counts
+    ap.add_argument("--class_weights", type=str, default="1,0.3,1.2")
+    ap.add_argument("--class_margin", type=float, default=0.02)
+    ap.add_argument("--ambiguous_policy", choices=["ery", "drop"], default="ery")
 
+    ap.add_argument("--leuko_min_abs", type=float, default=0.06)
+    ap.add_argument("--leuko_min_rel", type=float, default=0.55)
+    ap.add_argument("--hefe_min_abs", type=float, default=0.08)
+    ap.add_argument("--hefe_min_rel", type=float, default=0.60)
+    ap.add_argument("--leuko_margin_over_ery", type=float, default=0.015)
 
+    ap.add_argument("--debug", action="store_true")
+    args = ap.parse_args()
 
-# =========================
-# 4 ) Start: cmd-Interface
-# =========================
-# Erlaubt training über die Eingabeaufforderung (cmd)
-def main():
-    # python infer_count.py --image data/raw/img.png --model output/run/model_best.keras
-    parser = argparse.ArgumentParser(
-        description="visCell AI: Inferenz + Zählung auf einem Bild"
+    w = np.array([float(x.strip()) for x in args.class_weights.split(",")], dtype=np.float32)
+    if w.size != 3:
+        raise ValueError("--class_weights muss 3 Werte haben, z.B. '1,0.3,1.2'")
+
+    counts = infer_and_count(
+        model_path=args.model,
+        image_path=args.image,
+        spec=TileSpec(tile=args.tile, overlap=args.overlap),
+        quantile=args.quantile,
+        abs_thresh=args.abs_thresh,
+        max_fg=args.max_fg,
+        detect_dist=args.detect_dist,
+        merge_dist=args.merge_dist,
+        max_area=args.max_area,
+        peak_rel=args.peak_rel,
+        class_weights=w,
+        class_margin=float(args.class_margin),
+        ambiguous_policy=str(args.ambiguous_policy),
+        leuko_min_abs=float(args.leuko_min_abs),
+        leuko_min_rel=float(args.leuko_min_rel),
+        hefe_min_abs=float(args.hefe_min_abs),
+        hefe_min_rel=float(args.hefe_min_rel),
+        leuko_margin_over_ery=float(args.leuko_margin_over_ery),
+        debug=bool(args.debug),
     )
-    parser.add_argument(
-        "--image", required=True, type=Path, help="Pfad zum Eingabebild"
-    )
-    parser.add_argument(
-        "--model",
-        required=True,
-        type=Path,
-        help="Pfad zum gespeicherten Keras-Modell (.keras/.h5)",
-    )
-    args = parser.parse_args()
-
-    config = Config()  # Standard-Config laden
-
-    # ===== Inferenz ausführen und Ergebnis ausgeben =====
-    counts = run_inference(args.image, args.model, config)
     print(counts)
 
-
-# =========================
-# 5 ) Start der Anwendung
-# =========================
 if __name__ == "__main__":
     main()
