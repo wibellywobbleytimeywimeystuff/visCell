@@ -1,36 +1,3 @@
-"""
-infer_count_clean_v6.py
-
-v6 = v5 + adaptive Leuko/Hefe Mindestkonfidenz abhängig vom tile threshold (thr).
-
-Problem aus euren Tests:
-- A_st_001: echte Leukos sind da, aber die Schutzregeln drücken 15/16 Leuko-Winner zurück -> nur 1 Leuko bleibt.
-- A_st_006: viele Fake-Leuko-Winner, aber werden alle korrekt zurückgedrückt -> 0 Leuko bleibt (gut).
-
-Lösung:
-- Statt eines einzigen absoluten leuko_min nutzen wir:
-    leuko_min_eff = max(leuko_min_abs, leuko_min_rel * thr_tile)
-  Dadurch:
-  - Bei Bildern/Tiles mit hohem thr (z.B. A_st_006 thr~0.23) wird Leuko automatisch strenger.
-  - Bei Bildern/Tiles mit niedrigerem thr (A_st_001 thr~0.14) bleibt Leuko weniger streng -> echte Leukos können passieren.
-
-Analog für Hefe:
-    hefe_min_eff = max(hefe_min_abs, hefe_min_rel * thr_tile)
-
-Zusätzlich bleibt:
-- leuko_margin_over_ery (raw) als extra Schutz gegen "Leuko knapp über Ery".
-
-Startwerte (basierend auf euren Logs):
-- quantile 0.9943
-- class_weights 1,0.3,1.2
-- class_margin 0.02
-- leuko_min_abs 0.06
-- leuko_min_rel 0.55   (bei thr=0.23 -> 0.127; bei thr=0.14 -> 0.077)
-- leuko_margin_over_ery 0.015
-
-Aufruf:
-python src/ai/infer_count_clean_v6.py --model ... --image ... --debug
-"""
 
 from __future__ import annotations
 import os
@@ -58,7 +25,7 @@ class Peak:
     x: int
     y: int
     cls: str
-    conf: float  # peak strength in center_max
+    conf: float 
 
 def _iter_tiles(w: int, h: int, spec: TileSpec) -> Iterable[Tuple[int, int, int, int]]:
     step = spec.tile - spec.overlap
