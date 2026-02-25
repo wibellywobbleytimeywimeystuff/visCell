@@ -40,7 +40,7 @@ class ValidierungGUI(ctk.CTk):
 
         # ===== DUMMY-Analyse =====
         self.soll_ery = 100  # Referenzwert (Soll)
-        self.ki_ery = 101  # Dummy-KI-Ausgabe
+        self.ki_ery = 102  # Dummy-KI-Ausgabe
         self.validierung_ok = False  # Validierung ok/nok
 
         # =========================
