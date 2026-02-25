@@ -858,26 +858,42 @@ class App(ctk.CTk):
         self._update_progress(1, 5)
         time.sleep(0.1)
 
-        soll = int(self.soll_ery)
+        # Sollwerte
+        soll_ery = int(self.soll_ery)
+        soll_leuko = int(self.soll_leuko)
+        soll_hefe = int(self.soll_hefe)
 
         self._status("KI analysiert Referenzbild...", kind="info")
         self._update_progress(2, 5)
         time.sleep(0.8)
 
-        ist = int(self.ki_ery)
+        # Istwerte
+        ist_ery = int(self.ki_ery)
+        ist_leuko = int(self.ki_leuko)
+        ist_hefe = int(self.ki_hefe)
 
         self._status("Prüfe Ergebnis (Regel A)...", kind="info")
         self._update_progress(3, 5)
         time.sleep(0.05)
 
-        ok, tol = self._regel_check(ist=ist, soll=soll)
-        self.validierung_ok = bool(ok)
+        ok_ery, tol_ery = self._regel_check(ist=ist_ery, soll=soll_ery)
+        ok_leuko, tol_leuko = self._regel_check(ist=ist_leuko, soll=soll_leuko)
+        ok_hefe, tol_hefe = self._regel_check(ist=ist_hefe, soll=soll_hefe)
+
+        self.validierung_ok = ok_ery and ok_leuko and ok_hefe
 
         self._status("Ergebnis bereit (Bediener bestätigen)...", kind="info")
         self._update_progress(4, 5)
         time.sleep(0.6)
 
-        self.after(0, lambda: self._popup_confirm(ist, soll, tol))
+        self.after(
+            0,
+            lambda: self._popup_confirm(
+                ist_ery, soll_ery, tol_ery,
+                ist_leuko, soll_leuko, tol_leuko,
+                ist_hefe, soll_hefe, tol_hefe
+            )
+        )
         self._update_progress(5, 5)
 
     def _regel_check(self, ist: int, soll: int) -> tuple[bool, int]:
@@ -888,27 +904,32 @@ class App(ctk.CTk):
         ok = untergrenze <= ist <= obergrenze
         return ok, toleranz
 
-    def _popup_confirm(self, ist: int, soll: int, tol: int):
+    
+    def _popup_confirm(
+        self,
+        ist_ery, soll_ery, tol_ery,
+        ist_leuko, soll_leuko, tol_leuko,
+        ist_hefe, soll_hefe, tol_hefe
+    ):
         if self.validierung_ok:
             text = (
                 f"Validierung erfolgreich.\n\n"
-                f"Referenzwert: {soll}\n"
-                f"Istwert: {ist}\n"
-                f"Toleranz: ±{tol}%\n\n"
+                f"Ery:   Soll={soll_ery} | Ist={ist_ery} | ±{tol_ery}\n"
+                f"Leuko: Soll={soll_leuko} | Ist={ist_leuko} | ±{tol_leuko}\n"
+                f"Hefe:  Soll={soll_hefe} | Ist={ist_hefe} | ±{tol_hefe}\n\n"
                 f"Bestätigen Sie die Validierung?"
             )
         else:
             text = (
                 f"Validierung nicht erfolgreich.\n\n"
-                f"Referenzwert: {soll}\n"
-                f"Istwert: {ist}\n"
-                f"Toleranz: ±{tol}%\n\n"
+                f"Ery:   Soll={soll_ery} | Ist={ist_ery} | ±{tol_ery}\n"
+                f"Leuko: Soll={soll_leuko} | Ist={ist_leuko} | ±{tol_leuko}\n"
+                f"Hefe:  Soll={soll_hefe} | Ist={ist_hefe} | ±{tol_hefe}\n\n"
                 f"Trotzdem als erfolgreich bestätigen?"
             )
 
         confirmed = messagebox.askyesno("Validierung", text)
 
-        # Ergebnis: Status (ok / warning / error) -> Farbe automatisch je Theme
         if confirmed and self.validierung_ok:
             self._status("Validierung bestätigt ✅", kind="ok")
         elif confirmed and not self.validierung_ok:
@@ -918,6 +939,7 @@ class App(ctk.CTk):
 
         self.btn_validate.configure(state="normal")
 
+    # ===== Progress GUI =====
     # ===== Progress GUI =====
     def _update_progress(self, count: int, total: int):
         total = max(1, int(total))
