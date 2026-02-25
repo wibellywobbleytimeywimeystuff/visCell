@@ -914,17 +914,17 @@ class App(ctk.CTk):
         if self.validierung_ok:
             text = (
                 f"Validierung erfolgreich.\n\n"
-                f"Ery:   Soll={soll_ery} | Ist={ist_ery} | ±{tol_ery}\n"
-                f"Leuko: Soll={soll_leuko} | Ist={ist_leuko} | ±{tol_leuko}\n"
-                f"Hefe:  Soll={soll_hefe} | Ist={ist_hefe} | ±{tol_hefe}\n\n"
+                f"Ery:   {ist_ery} | Soll={soll_ery}\n"
+                f"Leuko: {ist_leuko} | Soll={soll_leuko}\n"
+                f"Hefe:  {ist_hefe} | Soll={soll_hefe}\n\n"
                 f"Bestätigen Sie die Validierung?"
             )
         else:
             text = (
                 f"Validierung nicht erfolgreich.\n\n"
-                f"Ery:   Soll={soll_ery} | Ist={ist_ery} | ±{tol_ery}\n"
-                f"Leuko: Soll={soll_leuko} | Ist={ist_leuko} | ±{tol_leuko}\n"
-                f"Hefe:  Soll={soll_hefe} | Ist={ist_hefe} | ±{tol_hefe}\n\n"
+                f"Ery:   {ist_ery} | Soll={soll_ery} |\n"
+                f"Leuko: {ist_leuko} | Soll={soll_leuko}\n"
+                f"Hefe:  {ist_hefe} | Soll={soll_hefe}\n\n"
                 f"Trotzdem als erfolgreich bestätigen?"
             )
 
