@@ -679,9 +679,9 @@ class App(ctk.CTk):
                     f"Mikroskop: {equipment}\n"
                     f"Vergrößerung: {vergroesserung}\n"
                     f"Probe Nummer: {probennummer}\n\n"
-                    "Erythrozyten Anzahl:      \n"
-                    "Leukozyten Anzahl:     \n"
-                    "Hefezellen Anzahl:    \n\n"
+                    "Erythrozyten Anzahl: {ery_anzahl} \n"
+                    "Leukozyten Anzahl:   {leu_anzahl}  \n"
+                    "Hefezellen Anzahl:   {hef_anzahl} \n\n"
                     f"Notizen: {notizen}"
                 )
             )
