@@ -86,6 +86,10 @@ class App(ctk.CTk):
         self._tk_img = None
         self._after_id = None
 
+        # ===== Resize-Redraw Debounce =====
+        self._resize_after_id = None
+        self._in_resize_redraw = False
+
         # Dropdown Variable (Kamera Auswahl)
         self.camera_var = ctk.StringVar(value="Kamera auswählen...")
 
@@ -397,13 +401,48 @@ class App(ctk.CTk):
         self.video_label.image = self._tk_img
 
     # =========================
+    # NEU: Auto-Resize beim Fensterziehen (importiertes/freeze Bild mitskalieren)
+    # =========================
+    def _on_video_resize(self, event=None):
+        """Wird beim Resize des Video-Labels/Containers aufgerufen -> Bild neu rendern (debounced)."""
+        if self._in_resize_redraw:
+            return
+
+        # Debounce: viele Configure-Events beim Ziehen abfangen
+        if self._resize_after_id is not None:
+            try:
+                self.after_cancel(self._resize_after_id)
+            except Exception:
+                pass
+            self._resize_after_id = None
+
+        self._resize_after_id = self.after(80, self._redraw_current_image_to_fit)
+
+    def _redraw_current_image_to_fit(self):
+        """Zeichnet das aktuell letzte Bild passend zur neuen Label-Größe."""
+        self._resize_after_id = None
+
+        if self.video_label is None:
+            return
+
+        # Wenn kein Bild da ist -> Placeholder lassen
+        if self.last_frame is None:
+            return
+
+        try:
+            self._in_resize_redraw = True
+            rgb = cv2.cvtColor(self.last_frame, cv2.COLOR_BGR2RGB)
+            self._display_rgb_in_video_label(rgb)
+        finally:
+            self._in_resize_redraw = False
+
+    # =========================
     # Bildanpassung: Sättigung (HSV S-Kanal)
     # =========================
     def _apply_saturation(self, bgr: np.ndarray, sat: float) -> np.ndarray:
         if bgr is None:
             return None
 
-        # sat: 0.0 .. 2.0 (1.0 = neutral)
         hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
         h, s, v = cv2.split(hsv)
 
@@ -461,21 +500,18 @@ class App(ctk.CTk):
         self._display_rgb_in_video_label(rgb)
 
     def _on_adjust_changed(self, *_):
-        # Sättigung: 0..100 -> sat 0.0..2.0 (50 => 1.0)
         if self.saturation_slider is not None:
             v = float(self.saturation_slider.get())
             self.saturation_factor = max(0.0, v / 50.0)
             if self.saturation_value_label is not None:
                 self.saturation_value_label.configure(text=f"{int(v)}%")
 
-        # Kontrast: 0..100 -> alpha ~ 0.01..2.0 (50 => 1.0)
         if self.contrast_slider is not None:
             v = float(self.contrast_slider.get())
             self.contrast_alpha = max(0.01, v / 50.0)
             if self.contrast_value_label is not None:
                 self.contrast_value_label.configure(text=f"{int(v)}%")
 
-        # Helligkeit: 0..100 -> beta -100..+100 (50 => 0)
         if self.brightness_slider is not None:
             v = float(self.brightness_slider.get())
             self.brightness_beta = (v - 50.0) * 2.0
@@ -506,7 +542,6 @@ class App(ctk.CTk):
         self.contrast_alpha = alpha
         self.brightness_beta = beta
 
-        # inverse Mapping zu Slidern
         v_contrast = int(np.clip(round(alpha * 50.0), 0, 100))
         v_brightness = int(np.clip(round(beta / 2.0 + 50.0), 0, 100))
 
@@ -515,7 +550,6 @@ class App(ctk.CTk):
         if self.brightness_slider is not None:
             self.brightness_slider.set(v_brightness)
 
-        # Sättigung lassen wir bei AutoAdjust unverändert (nur Kontrast/Helligkeit)
         self._on_adjust_changed()
         self._set_status(f"AutoAdjust: alpha={alpha:.2f}, beta={beta:.1f}")
 
@@ -533,16 +567,13 @@ class App(ctk.CTk):
 
                 self.current_image_path = None
 
-                # Base = Roh-Frame
                 self.base_frame = frame.copy()
 
-                # Angepasst berechnen und anzeigen (inkl. Sättigung)
                 adjusted = self._apply_all_adjustments(self.base_frame)
                 self.last_frame = adjusted
 
                 rgb = cv2.cvtColor(adjusted, cv2.COLOR_BGR2RGB)
 
-                # Widgetgröße holen
                 self.video_label.update_idletasks()
                 target_w = self.video_label.winfo_width()
                 target_h = self.video_label.winfo_height()
@@ -597,10 +628,8 @@ class App(ctk.CTk):
                 rgb = np.array(pil_img)
                 bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
-                # Base neu setzen (aus Datei)
                 self.base_frame = bgr.copy()
 
-                # Anpassung anwenden + anzeigen (setzt auch last_frame)
                 self._recompute_and_show_current()
 
                 self._set_status(f"Gespeichert & geöffnet (Freeze): {path}")
@@ -638,11 +667,9 @@ class App(ctk.CTk):
             rgb = np.array(pil_img)
             bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
-            # Base setzen (Original)
             self.base_frame = bgr.copy()
             self.current_image_path = file_path
 
-            # Angepasst anzeigen (setzt last_frame)
             self._recompute_and_show_current()
 
             self._set_status(f"Importiert: {os.path.basename(file_path)}")
@@ -748,7 +775,6 @@ class App(ctk.CTk):
 
         entries = {}
 
-        # Vorbelegung mit gespeicherten Werten
         for field in fields:
             frame = ctk.CTkFrame(popup)
             frame.pack(fill="x", padx=20, pady=5)
@@ -767,7 +793,6 @@ class App(ctk.CTk):
             if analysedatum_raw == "":
                 analysedatum_raw = datetime.now().strftime("%d.%m.%Y %H:%M")
 
-            # in App-State schreiben (bleibt erhalten)
             self.metadata["Analysedatum"] = analysedatum_raw
             self.metadata["Prüfer"] = entries["Prüfer"].get().strip()
             self.metadata["Labor"] = entries["Labor"].get().strip()
@@ -939,6 +964,11 @@ class App(ctk.CTk):
         )
         self.video_label.grid(row=0, column=0, sticky="nsew")
 
+        # ===== NEU: Resize-Event binden (damit import/freeze Bild mitskaliert) =====
+        self.video_label.bind("<Configure>", self._on_video_resize)
+        # Optional zusätzlich:
+        self.video_container.bind("<Configure>", self._on_video_resize)
+
         self.video_text = ctk.CTkLabel(
             live_view,
             text="Kein Bild vorhanden\n(bitte Kamera auswählen)",
@@ -992,7 +1022,7 @@ class App(ctk.CTk):
         slider_frame = ctk.CTkFrame(right_panel)
         slider_frame.pack(fill="x", padx=10, pady=10)
 
-        # ===== Sättigung (JETZT: wirkt wirklich aufs Bild) =====
+        # ===== Sättigung =====
         row = ctk.CTkFrame(slider_frame, fg_color="transparent")
         row.pack(fill="x", padx=10, pady=(8, 2))
 
@@ -1043,10 +1073,8 @@ class App(ctk.CTk):
         brightness_slider.configure(command=self._on_adjust_changed)
         brightness_slider.set(50)
 
-        # Initiale Labels/Parameter korrekt setzen (einmal triggern)
         self._on_adjust_changed()
 
-        # ===== Buttons unten =====
         function_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
         function_frame.pack(fill="x", padx=10, pady=10)
 
