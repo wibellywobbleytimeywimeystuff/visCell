@@ -1,16 +1,3 @@
-"""
-Modul: aust_gui.py
-Beschreibung:
-Dieses Skript ist die grafische Benutzeroberflächedes Projekts Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse von mikroskopischen Zellstrukturen.
-
-Autor: Max Sielhorst
-Co-Autor: Marlon Aust für gesamten Hell-/Dunkelmodus, Integrierung KI und Validierungsfunktion
-Co-Autor: Sven Klapp für Error-Handling
-Projektname: visCell
-Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse
-von mikroskopischen Zellstrukturen.
-"""
-
 # ============================
 # 1 ) Bibliotheken importieren
 # ============================
