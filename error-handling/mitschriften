@@ -23,3 +23,7 @@ Schriftfarbwechsel nach validierung
  - Schriftfarbe bleibt nicht kostant bei Farbwechsel
  - Definierung einer Variable die sich die Farbe merkt
  - if funktion die guckt welche was angezeigt wird und wenn farbe gewechselt wird entweder beibehält oder andere nimmt, für eine bessere Anzeige fürs bessere Lesen
+
+ Kameraaktualisierung
+    - beim neuen anstecken oder trennen einer Kamera soll das Dropdown menü aktualisiert werden
+    - neuer button?
