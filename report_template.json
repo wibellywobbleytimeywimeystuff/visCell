@@ -1,0 +1,43 @@
+{
+  "meta": {
+    "title": "Bericht zur Zellanalyse",
+    "location": "Dortmund",
+    "date_format": "%d.%m.%Y"
+  },
+  "sections": [
+    {
+      "title": "Administrative Daten",
+      "fields": [
+        { "label": "Analysedatum", "key": "analysedatum" },
+        { "label": "Prüfer",      "key": "pruefer" },
+        { "label": "Labor",       "key": "labpr" }
+      ]
+    },
+    {
+      "title": "Equipment und Probe",
+      "fields": [
+        { "label": "Mikroskop",      "key": "equipment" },
+        { "label": "Vergrößerung",   "key": "vergroesserung" },
+        { "label": "Probennummer",   "key": "probennummer" }
+      ]
+    },
+    {
+      "title": "Anzahl und Unterscheidung",
+      "fields": [
+        { "label": "Erythrozyten", "key": "ery_anzahl" },
+        { "label": "Leukozyten",   "key": "leu_anzahl" },
+        { "label": "Hefezellen",   "key": "hef_anzahl" }
+      ]
+    },
+    {
+      "title": "Notizen",
+      "fields": [
+        { "label": "Notizen", "key": "notizen", "multiline": true }
+      ]
+    }
+  ],
+  "signature": {
+    "line1": "{location}, den {analysedatum}",
+    "line2": "{pruefer}"
+  }
+}
