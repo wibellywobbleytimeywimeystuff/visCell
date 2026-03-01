@@ -1,0 +1,12 @@
+python src/ai/infer_count_clean_v6.py --model runs/viscell_unet_512_cpu_unstained/model_best.keras --image data/batch_A/unstained/A_ut_006.png --debug 
+python src/ai/infer_count_clean_v6.py --model runs/viscell_unet_512_cpu_unstained/model_best.keras --image data/batch_A/unstained/A_ut_007.png --debug 
+python src/ai/infer_count_clean_v6.py --model runs/viscell_unet_512_cpu_unstained/model_best.keras --image data/batch_A/unstained/A_ut_011.png --debug  
+python src/ai/infer_count_clean_v6.py --model runs/viscell_unet_512_cpu_unstained/model_best.keras --image data/batch_A/unstained/A_ut_014.png --debug
+
+python src/ai/infer_count_clean_v6.py --model runs/viscell_unet_512_cpu_unstained/model_best.keras --image data/batch_B/unstained/B_ut_004.png --debug 
+python src/ai/infer_count_clean_v6.py --model runs/viscell_unet_512_cpu_unstained/model_best.keras --image data/batch_B/unstained/B_ut_022.png --debug 
+python src/ai/infer_count_clean_v6.py --model runs/viscell_unet_512_cpu_unstained/model_best.keras --image data/batch_B/unstained/B_ut_024.png --debug 
+
+python src/ai/infer_count_clean_v6.py --model runs/viscell_unet_512_cpu_unstained/model_best.keras --image data/batch_C/unstained/C_ut_013.png --debug 
+python src/ai/infer_count_clean_v6.py --model runs/viscell_unet_512_cpu_unstained/model_best.keras --image data/batch_C/unstained/C_ut_020.png --debug 
+python src/ai/infer_count_clean_v6.py --model runs/viscell_unet_512_cpu_unstained/model_best.keras --image data/batch_C/unstained/C_ut_023.png --debug 

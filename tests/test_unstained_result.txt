@@ -1,0 +1,13 @@
+image;ery;hefe;leuko
+A_ut_006.png;106;32;0
+A_ut_007.png;112;18;0
+A_ut_011.png;119;0;0
+A_ut_014.png;114;0;0
+
+B_ut_004.png;101;0;0
+B_ut_022.png;108;0;2
+B_ut_024.png;106;0;0
+
+C_ut_013.png;111;0;0
+C_ut_020.png;39;4;41
+C_ut_021.png;438;24;0
