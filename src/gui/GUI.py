@@ -662,9 +662,12 @@ class App(ctk.CTk):
     def _import_image(self):
         self._stop_camera()
 
+        BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        DEFAULT_IMAGE_DIR = os.path.join(BASE_DIR, "data")
+
         file_path = filedialog.askopenfilename(
             title="Bild importieren",
-            initialdir=self.capture_dir,
+            initialdir=DEFAULT_IMAGE_DIR,
             filetypes=[
                 ("Bilddateien", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff"),
                 ("PNG", "*.png"),
@@ -796,12 +799,13 @@ class App(ctk.CTk):
 
             tmp_dir = Path(self.capture_dir)
             tmp_dir.mkdir(parents=True, exist_ok=True)
+            
             tmp_path = tmp_dir / "_tmp_analysis.png"
             import cv2 as _cv2
             _cv2.imwrite(str(tmp_path), self.last_frame)
 
             ai_src = (self.project_root / "src" / "ai").resolve()
-            if str(ai_src) not in sys.path:
+            if str(ai_src) not in sys.path: 
                 sys.path.insert(0, str(ai_src))
 
             import numpy as _np
@@ -813,11 +817,11 @@ class App(ctk.CTk):
                 model_path=Path(model_path),
                 image_path=Path(tmp_path),
                 spec=infermod.TileSpec(tile=512, overlap=64),
-                quantile=0.9943,
-                abs_thresh=0.0,
-                max_fg=0.01,
-                detect_dist=6,
-                merge_dist=14,
+                quantile=0.9960,  # 0.9943
+                abs_thresh=0.03,  # 0.0
+                max_fg=0.01,  # 0.01
+                detect_dist=10,  # 6
+                merge_dist=18,  # 14
                 max_area=120,
                 peak_rel=1.0,
                 class_weights=class_weights,
@@ -956,15 +960,34 @@ class App(ctk.CTk):
 
         class_weights = _np.array([1.0, 0.0, 1.2], dtype=_np.float32)
 
+        # Validierung: Referenzbild durch exakt dieselbe Preprocessing-Pipeline wie "Bild importieren" schicken
+        # (PIL -> BGR -> GUI-Adjustments -> tmp PNG), damit Validierung und Analyse identisch laufen.
+        from PIL import Image as _Image
+        import cv2 as _cv2
+
+        pil_img = _Image.open(self.validation_ref_image).convert("RGB")
+        rgb = _np.array(pil_img)
+        bgr = _cv2.cvtColor(rgb, _cv2.COLOR_RGB2BGR)
+
+        adjusted = self._apply_all_adjustments(bgr)
+        if adjusted is None:
+            adjusted = bgr
+
+        tmp_dir = Path(self.capture_dir)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        tmp_path = tmp_dir / "_tmp_analysis.png"
+        _cv2.imwrite(str(tmp_path), adjusted)
+
+
         counts = infermod.infer_and_count(
             model_path=Path(model_path),
-            image_path=Path(self.validation_ref_image),
+            image_path=Path(tmp_path),
             spec=infermod.TileSpec(tile=512, overlap=64),
-            quantile=0.9943,
-            abs_thresh=0.0,
-            max_fg=0.01,
-            detect_dist=6,
-            merge_dist=14,
+            quantile=0.9960,  # 0,9943
+            abs_thresh=0.03,  # 0.0
+            max_fg=0.01,  # 0.01
+            detect_dist=10,  # 6
+            merge_dist=18,  # 14
             max_area=120,
             peak_rel=1.0,
             class_weights=class_weights,

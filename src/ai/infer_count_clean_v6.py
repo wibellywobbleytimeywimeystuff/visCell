@@ -252,8 +252,8 @@ def main() -> None:
     ap.add_argument("--abs_thresh", type=float, default=0.0)
     ap.add_argument("--max_fg", type=float, default=0.01)
 
-    ap.add_argument("--detect_dist", type=int, default=6)
-    ap.add_argument("--merge_dist", type=int, default=14)
+    ap.add_argument("--detect_dist", type=int, default=10)  
+    ap.add_argument("--merge_dist", type=int, default=6)  
 
     ap.add_argument("--max_area", type=int, default=120)
     ap.add_argument("--peak_rel", type=float, default=1.0)
