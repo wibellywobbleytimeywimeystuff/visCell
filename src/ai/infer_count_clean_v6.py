@@ -187,7 +187,12 @@ def infer_and_count(
         pred = model.predict(_preprocess(tile), verbose=0)
         centers = _extract_centers(pred)
         centers3 = centers[..., :3].astype(np.float32)
-        center_max = np.max(centers3, axis=-1)
+        # If Hefe is disabled (weight == 0), exclude its channel from peak detection.
+        if float(class_weights[IDX['hefe']]) == 0.0:
+            centers_peak = centers3[..., [IDX['ery'], IDX['leuko']]]
+        else:
+            centers_peak = centers3
+        center_max = np.max(centers_peak, axis=-1)
 
         thr = _robust_thr(center_max, quantile=quantile, abs_thresh=abs_thresh, max_fg=max_fg)
         pmask = _peak_mask(center_max, thr=thr, detect_dist=detect_dist)
@@ -292,6 +297,10 @@ def main() -> None:
         debug=bool(args.debug),
     )
     print(counts)
+
+    # ---- CSV-Ausgabe für Batch-Testing ----
+    image_name = args.image.name
+    print(f"{image_name},{counts['ery']},{counts['hefe']},{counts['leuko']}")
 
 if __name__ == "__main__":
     main()

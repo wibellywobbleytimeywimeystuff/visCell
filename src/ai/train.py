@@ -200,10 +200,10 @@ def make_generator(
 # Anzahl Epochen, Batchtyp A, Batchtyp B, Batchtyp C
 def curriculum_schedule():
     return [
-        (25, {"A": 0.8, "B": 0.2, "C": 0.0}),  # Grob
-        (25, {"A": 0.3, "B": 0.5, "C": 0.2}),  # Weniger grob
-        (35, {"A": 0.1, "B": 0.3, "C": 0.6}),  # Feiner
-        (15, {"A": 0.2, "B": 0.3, "C": 0.5}),  # fine-tuning
+        (20, {"A": 0.6, "B": 0.3, "C": 0.1}),  # Stabiler Start, nicht zu ery-lastig
+        (35, {"A": 0.3, "B": 0.5, "C": 0.2}),  # Übergang
+        (20, {"A": 0.1, "B": 0.3, "C": 0.6}),  # Cluster lernen
+        (20, {"A": 0.2, "B": 0.3, "C": 0.5}),  # Feintuning
     ]
 
 

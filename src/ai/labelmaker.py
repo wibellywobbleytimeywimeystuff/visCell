@@ -79,7 +79,6 @@ class LabelMaker(ctk.CTk):
         # ===== Fenster erstellen =====
         self.title("visCell – Labelmaker v2 (einfach)")
         self.geometry("1280x720")  # Fenster Normalgröße
-        self.maxsize(1920, 1080)  # Fenster Maximalgröße
         self.minsize(1000, 600)  # Fenster Mindestgröße
 
         # ===== Pfade =====
