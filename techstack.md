@@ -1,2 +1,0 @@
-pip install customtkinter==5.2.2 "opencv-python>=4.10.0,<4.11.0" numpy==1.26.4 tensorflow==2.16.1
-pip show customtkinter opencv-python numpy tensorflow
