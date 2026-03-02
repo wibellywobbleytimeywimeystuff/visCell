@@ -54,8 +54,8 @@ class App(ctk.CTk):
 
         # ===== Fenster Einstellungen =====
         self.title("visCell")
-        self.geometry("1440x980")
-        self.minsize(1100, 750)
+        self.geometry("1200x600")
+        self.minsize(900, 750)
 
         # ===== Validierung: Grundwerte Zellen =====
         self.soll_ery = 0
@@ -490,6 +490,11 @@ class App(ctk.CTk):
     def _apply_all_adjustments(self, bgr: np.ndarray) -> np.ndarray:
         if bgr is None:
             return None
+        # ===== Keine Bildänderung durch Schieberegler, Bild geladen durch Pipeline =====
+        if (abs(float(self.contrast_alpha) - 1.0) < 1e-9 and
+            abs(float(self.brightness_beta) - 0.0) < 1e-9 and
+            abs(float(self.saturation_factor) - 1.0) < 1e-9):
+            return bgr
 
         adjusted = self._apply_brightness_contrast(
             bgr,
@@ -662,12 +667,9 @@ class App(ctk.CTk):
     def _import_image(self):
         self._stop_camera()
 
-        BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        DEFAULT_IMAGE_DIR = os.path.join(BASE_DIR, "data")
-
         file_path = filedialog.askopenfilename(
             title="Bild importieren",
-            initialdir=DEFAULT_IMAGE_DIR,
+            initialdir=self.capture_dir,
             filetypes=[
                 ("Bilddateien", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff"),
                 ("PNG", "*.png"),
@@ -797,37 +799,40 @@ class App(ctk.CTk):
             if not model_path.exists():
                 raise FileNotFoundError(f"Model nicht gefunden: {model_path}")
 
-            tmp_dir = Path(self.capture_dir)
-            tmp_dir.mkdir(parents=True, exist_ok=True)
-            
-            tmp_path = tmp_dir / "_tmp_analysis.png"
-            import cv2 as _cv2
-            _cv2.imwrite(str(tmp_path), self.last_frame)
+
+            # Bild so analysieren, wie es im GUI angezeigt wird:
+            # Slider/AutoAdjust werden hier angewendet, wie bisher.
+            image_bgr = self._apply_all_adjustments(self.last_frame)
+            if image_bgr is None:
+                image_bgr = self.last_frame
+            if image_bgr is None:
+                raise ValueError("Kein Bild geladen (last_frame ist None)")
 
             ai_src = (self.project_root / "src" / "ai").resolve()
-            if str(ai_src) not in sys.path: 
+            if str(ai_src) not in sys.path:
                 sys.path.insert(0, str(ai_src))
 
             import numpy as _np
-            import infer_count_clean_v6 as infermod
+            import infer_count as infermod
+            print("[GUI] Analyse infermod file:", infermod.__file__)
 
             class_weights = _np.array([1.0, 0.0, 1.2], dtype=_np.float32)
 
-            counts = infermod.infer_and_count(
+            counts = infermod.infer_and_count_array(
                 model_path=Path(model_path),
-                image_path=Path(tmp_path),
+                image_bgr=image_bgr,
                 spec=infermod.TileSpec(tile=512, overlap=64),
-                quantile=0.9960,  # 0.9943
-                abs_thresh=0.03,  # 0.0
-                max_fg=0.01,  # 0.01
-                detect_dist=10,  # 6
-                merge_dist=18,  # 14
+                quantile=0.9960,
+                abs_thresh=0.03,
+                max_fg=0.01,
+                detect_dist=10,
+                merge_dist=18,
                 max_area=120,
                 peak_rel=1.0,
                 class_weights=class_weights,
-                class_margin=0.02,
+                class_margin=0.001,  # 0.02
                 ambiguous_policy="ery",
-                leuko_min_abs=0.06,
+                leuko_min_abs=0.02,  # 0.06
                 leuko_min_rel=0.55,
                 hefe_min_abs=0.08,
                 hefe_min_rel=0.60,
@@ -950,7 +955,8 @@ class App(ctk.CTk):
             sys.path.insert(0, str(ai_src))
 
         import numpy as _np
-        import infer_count_clean_v6 as infermod
+        import infer_count as infermod
+        print("[GUI] Validierung infermod file:", infermod.__file__)
 
         model_path = self.model_path_stained
         if not model_path.exists():
@@ -958,42 +964,35 @@ class App(ctk.CTk):
         if not self.validation_ref_image.exists():
             raise FileNotFoundError(f"Referenzbild nicht gefunden: {self.validation_ref_image}")
 
+        # Referenzbild exakt wie beim Import laden (PIL -> BGR) und dann mit aktuellen GUI-Reglern bearbeiten.
+        from PIL import Image
+        import numpy as np
+        import cv2
+
+        pil_img = Image.open(self.validation_ref_image).convert("RGB")
+        rgb = np.array(pil_img)
+        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        image_bgr = self._apply_all_adjustments(bgr)
+        if image_bgr is None:
+            image_bgr = bgr
+
         class_weights = _np.array([1.0, 0.0, 1.2], dtype=_np.float32)
 
-        # Validierung: Referenzbild durch exakt dieselbe Preprocessing-Pipeline wie "Bild importieren" schicken
-        # (PIL -> BGR -> GUI-Adjustments -> tmp PNG), damit Validierung und Analyse identisch laufen.
-        from PIL import Image as _Image
-        import cv2 as _cv2
-
-        pil_img = _Image.open(self.validation_ref_image).convert("RGB")
-        rgb = _np.array(pil_img)
-        bgr = _cv2.cvtColor(rgb, _cv2.COLOR_RGB2BGR)
-
-        adjusted = self._apply_all_adjustments(bgr)
-        if adjusted is None:
-            adjusted = bgr
-
-        tmp_dir = Path(self.capture_dir)
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-        tmp_path = tmp_dir / "_tmp_analysis.png"
-        _cv2.imwrite(str(tmp_path), adjusted)
-
-
-        counts = infermod.infer_and_count(
+        counts = infermod.infer_and_count_array(
             model_path=Path(model_path),
-            image_path=Path(tmp_path),
+            image_bgr=image_bgr,
             spec=infermod.TileSpec(tile=512, overlap=64),
-            quantile=0.9960,  # 0,9943
-            abs_thresh=0.03,  # 0.0
-            max_fg=0.01,  # 0.01
-            detect_dist=10,  # 6
-            merge_dist=18,  # 14
+            quantile=0.9960,
+            abs_thresh=0.03,
+            max_fg=0.01,
+            detect_dist=10,
+            merge_dist=18,
             max_area=120,
             peak_rel=1.0,
             class_weights=class_weights,
-            class_margin=0.02,
+            class_margin=0.001,  # 0.02
             ambiguous_policy="ery",
-            leuko_min_abs=0.06,
+            leuko_min_abs=0.02,  # 0.06
             leuko_min_rel=0.55,
             hefe_min_abs=0.08,
             hefe_min_rel=0.60,

@@ -110,6 +110,7 @@ def _pick_class(
     hefe_min_abs: float,
     hefe_min_rel: float,
     leuko_margin_over_ery: float,
+    leuko_ratio: float,
     thr_tile: float,
 ) -> Tuple[str, str]:
     """
@@ -131,7 +132,7 @@ def _pick_class(
     if top == IDX["leuko"]:
         if float(v_raw[IDX["leuko"]]) < leuko_min_eff:
             return ("ery", "leuko_guard")
-        if (float(v_raw[IDX["leuko"]]) - float(v_raw[IDX["ery"]])) < float(leuko_margin_over_ery):
+        if float(v_raw[IDX["leuko"]]) < float(v_raw[IDX["ery"]]) * float(leuko_ratio):
             return ("ery", "leuko_guard")
     if top == IDX["hefe"]:
         if float(v_raw[IDX["hefe"]]) < hefe_min_eff:
@@ -158,6 +159,7 @@ def infer_and_count(
     hefe_min_abs: float,
     hefe_min_rel: float,
     leuko_margin_over_ery: float,
+    leuko_ratio: float,
     debug: bool,
 ) -> Dict[str, int]:
     img = cv2.imread(str(image_path))
@@ -171,6 +173,14 @@ def infer_and_count(
 
     raw_wins = {c: 0 for c in CLASSES}
     forced = {"margin": 0, "leuko_guard": 0, "hefe_guard": 0}
+
+    # --- Debug: Sammle Score-Statistiken an allen Peaks (vor NMS) ---
+    dbg_count = 0
+    dbg_sum = np.zeros(3, dtype=np.float64)
+    dbg_min = np.full(3, np.inf, dtype=np.float64)
+    dbg_max = np.full(3, -np.inf, dtype=np.float64)
+    # Top-Leuko-Peaks: Liste von (leuko, ery, hefe, strength, x, y, thr)
+    dbg_top_leuko: List[Tuple[float, float, float, float, int, int, float]] = []
 
     if debug:
         print(f"[DEBUG] image={w}x{h}, tiles={len(tiles)}, tile={spec.tile}, overlap={spec.overlap}")
@@ -211,13 +221,28 @@ def infer_and_count(
                 continue
 
             vec = centers3[cy0, cx0, :]
+
+            # Debug: pro-Peak Scores sammeln (Rohwerte, nicht gewichtet)
+            if debug:
+                v = vec.astype(np.float64)
+                dbg_count += 1
+                dbg_sum += v
+                dbg_min = np.minimum(dbg_min, v)
+                dbg_max = np.maximum(dbg_max, v)
+                # Top 15 nach Leuko-Score (roh)
+                item = (float(v[IDX["leuko"]]), float(v[IDX["ery"]]), float(v[IDX["hefe"]]),
+                        float(peak_strength), int(x0 + cx), int(y0 + cy), float(thr))
+                dbg_top_leuko.append(item)
+                if len(dbg_top_leuko) > 30:
+                    dbg_top_leuko.sort(key=lambda t: t[0], reverse=True)
+                    dbg_top_leuko = dbg_top_leuko[:15]
             widx = int(np.argmax(vec * class_weights))
             raw_wins[CLASSES[widx]] += 1
 
             picked, reason = _pick_class(
                 vec, class_weights, class_margin, ambiguous_policy,
                 leuko_min_abs, leuko_min_rel, hefe_min_abs, hefe_min_rel,
-                leuko_margin_over_ery, thr_tile=thr
+                leuko_margin_over_ery, leuko_ratio, thr_tile=thr
             )
             if reason != "ok":
                 forced[reason] += 1
@@ -226,6 +251,170 @@ def infer_and_count(
             all_peaks.append(Peak(x=x0 + cx, y=y0 + cy, cls=picked, conf=peak_strength))
 
     if debug:
+        # Debug-Ausgabe: Score-Statistiken an Peaks
+        if dbg_count > 0:
+            mean = (dbg_sum / float(dbg_count)).tolist()
+            print("[DEBUG] per-peak raw score stats:")
+            print(f"  ery  min/mean/max: {float(dbg_min[IDX['ery']]):.6f} / {float(mean[IDX['ery']]):.6f} / {float(dbg_max[IDX['ery']]):.6f}")
+            print(f"  hefe min/mean/max: {float(dbg_min[IDX['hefe']]):.6f} / {float(mean[IDX['hefe']]):.6f} / {float(dbg_max[IDX['hefe']]):.6f}")
+            print(f"  leuko min/mean/max: {float(dbg_min[IDX['leuko']]):.6f} / {float(mean[IDX['leuko']]):.6f} / {float(dbg_max[IDX['leuko']]):.6f}")
+
+            dbg_top_leuko.sort(key=lambda t: t[0], reverse=True)
+            top = dbg_top_leuko[:10]
+            print("[DEBUG] top leuko-score peaks (leuko, ery, hefe, strength, x, y, thr):")
+            for t in top:
+                print(f"  {t[0]:.6f}, {t[1]:.6f}, {t[2]:.6f}, {t[3]:.6f}, {t[4]}, {t[5]}, {t[6]:.6f}")
+        else:
+            print("[DEBUG] per-peak raw score stats: no peaks after filtering")
+
+        print(f"[DEBUG] raw winners (weighted): {raw_wins}")
+        print(f"[DEBUG] forced reasons: {forced}")
+        print(f"[DEBUG] peaks before NMS: {len(all_peaks)}")
+
+    merged = _nms_by_distance(all_peaks, merge_dist=merge_dist)
+
+    if debug:
+        print(f"[DEBUG] peaks after  NMS: {len(merged)}")
+
+    totals = {c: 0 for c in CLASSES}
+    for p in merged:
+        totals[p.cls] += 1
+    return totals
+
+def infer_and_count_array(
+    model_path: Path,
+    image_bgr: np.ndarray,
+    spec: TileSpec,
+    quantile: float,
+    abs_thresh: float,
+    max_fg: float,
+    detect_dist: int,
+    merge_dist: int,
+    max_area: int,
+    peak_rel: float,
+    class_weights: np.ndarray,
+    class_margin: float,
+    ambiguous_policy: str,
+    leuko_min_abs: float,
+    leuko_min_rel: float,
+    hefe_min_abs: float,
+    hefe_min_rel: float,
+    leuko_margin_over_ery: float,
+    leuko_ratio: float,
+    debug: bool,
+) -> Dict[str, int]:
+    """Wie infer_and_count(), aber nimmt das Bild direkt als BGR-NumPy-Array.
+
+    Dadurch keine Unterschiede durch PNG-Encode/Decode im GUI.
+    """
+
+    # NOTE: Bild kommt bereits als BGR-Array aus dem GUI (inkl. Slider/AutoAdjust).
+    img = image_bgr
+    if img is None or not isinstance(img, np.ndarray) or img.ndim != 3:
+        raise ValueError("image_bgr muss ein BGR-Array (H×W×3) sein")
+
+    model = tf.keras.models.load_model(str(model_path), compile=False)
+
+    h, w = img.shape[:2]
+    all_peaks: List[Peak] = []
+    tiles = list(_iter_tiles(w, h, spec))
+
+    raw_wins = {c: 0 for c in CLASSES}
+    forced = {"margin": 0, "leuko_guard": 0, "hefe_guard": 0}
+
+    # --- Debug: Sammle Score-Statistiken an allen Peaks (vor NMS) ---
+    dbg_count = 0
+    dbg_sum = np.zeros(3, dtype=np.float64)
+    dbg_min = np.full(3, np.inf, dtype=np.float64)
+    dbg_max = np.full(3, -np.inf, dtype=np.float64)
+    # Top-Leuko-Peaks: Liste von (leuko, ery, hefe, strength, x, y, thr)
+    dbg_top_leuko: List[Tuple[float, float, float, float, int, int, float]] = []
+
+    if debug:
+        print(f"[DEBUG] image={w}x{h}, tiles={len(tiles)}, tile={spec.tile}, overlap={spec.overlap}")
+        print(f"[DEBUG] weights={class_weights.tolist()} class_margin={class_margin} ambiguous_policy={ambiguous_policy}")
+        print(f"[DEBUG] leuko_min_abs={leuko_min_abs} leuko_min_rel={leuko_min_rel} hefe_min_abs={hefe_min_abs} hefe_min_rel={hefe_min_rel} leuko_margin_over_ery={leuko_margin_over_ery}")
+
+    for ti, (x0, y0, x1, y1) in enumerate(tiles, start=1):
+        tile = img[y0:y1, x0:x1]
+        if tile.shape[0] != spec.tile or tile.shape[1] != spec.tile:
+            pad = np.zeros((spec.tile, spec.tile, 3), dtype=tile.dtype)
+            pad[:tile.shape[0], :tile.shape[1]] = tile
+            tile = pad
+
+        pred = model.predict(_preprocess(tile), verbose=0)
+        centers = _extract_centers(pred)
+        centers3 = centers[..., :3].astype(np.float32)
+        # If Hefe is disabled (weight == 0), exclude its channel from peak detection.
+        if float(class_weights[IDX['hefe']]) == 0.0:
+            centers_peak = centers3[..., [IDX['ery'], IDX['leuko']]]
+        else:
+            centers_peak = centers3
+        center_max = np.max(centers_peak, axis=-1)
+
+        thr = _robust_thr(center_max, quantile=quantile, abs_thresh=abs_thresh, max_fg=max_fg)
+        pmask = _peak_mask(center_max, thr=thr, detect_dist=detect_dist)
+        if float(pmask.mean()) > 0.02:
+            continue
+        cents = _components_centroids(pmask, max_area=max_area)
+
+        if debug and ti <= 2:
+            print(f"[DEBUG] tile#{ti} thr={thr:.6f} detect_peaks={len(cents)} center_max.max={float(center_max.max()):.6f}")
+
+        for cx, cy, _ in cents:
+            cy0 = int(np.clip(cy, 0, centers3.shape[0]-1))
+            cx0 = int(np.clip(cx, 0, centers3.shape[1]-1))
+            peak_strength = float(center_max[cy0, cx0])
+            if peak_strength < float(thr) * float(peak_rel):
+                continue
+
+            vec = centers3[cy0, cx0, :]
+
+            # Debug: pro-Peak Scores sammeln (Rohwerte, nicht gewichtet)
+            if debug:
+                v = vec.astype(np.float64)
+                dbg_count += 1
+                dbg_sum += v
+                dbg_min = np.minimum(dbg_min, v)
+                dbg_max = np.maximum(dbg_max, v)
+                # Top 15 nach Leuko-Score (roh)
+                item = (float(v[IDX["leuko"]]), float(v[IDX["ery"]]), float(v[IDX["hefe"]]),
+                        float(peak_strength), int(x0 + cx), int(y0 + cy), float(thr))
+                dbg_top_leuko.append(item)
+                if len(dbg_top_leuko) > 30:
+                    dbg_top_leuko.sort(key=lambda t: t[0], reverse=True)
+                    dbg_top_leuko = dbg_top_leuko[:15]
+            widx = int(np.argmax(vec * class_weights))
+            raw_wins[CLASSES[widx]] += 1
+
+            picked, reason = _pick_class(
+                vec, class_weights, class_margin, ambiguous_policy,
+                leuko_min_abs, leuko_min_rel, hefe_min_abs, hefe_min_rel,
+                leuko_margin_over_ery, leuko_ratio, thr_tile=thr
+            )
+            if reason != "ok":
+                forced[reason] += 1
+            if picked == "":
+                continue
+            all_peaks.append(Peak(x=x0 + cx, y=y0 + cy, cls=picked, conf=peak_strength))
+
+    if debug:
+        # Debug-Ausgabe: Score-Statistiken an Peaks
+        if dbg_count > 0:
+            mean = (dbg_sum / float(dbg_count)).tolist()
+            print("[DEBUG] per-peak raw score stats:")
+            print(f"  ery  min/mean/max: {float(dbg_min[IDX['ery']]):.6f} / {float(mean[IDX['ery']]):.6f} / {float(dbg_max[IDX['ery']]):.6f}")
+            print(f"  hefe min/mean/max: {float(dbg_min[IDX['hefe']]):.6f} / {float(mean[IDX['hefe']]):.6f} / {float(dbg_max[IDX['hefe']]):.6f}")
+            print(f"  leuko min/mean/max: {float(dbg_min[IDX['leuko']]):.6f} / {float(mean[IDX['leuko']]):.6f} / {float(dbg_max[IDX['leuko']]):.6f}")
+
+            dbg_top_leuko.sort(key=lambda t: t[0], reverse=True)
+            top = dbg_top_leuko[:10]
+            print("[DEBUG] top leuko-score peaks (leuko, ery, hefe, strength, x, y, thr):")
+            for t in top:
+                print(f"  {t[0]:.6f}, {t[1]:.6f}, {t[2]:.6f}, {t[3]:.6f}, {t[4]}, {t[5]}, {t[6]:.6f}")
+        else:
+            print("[DEBUG] per-peak raw score stats: no peaks after filtering")
+
         print(f"[DEBUG] raw winners (weighted): {raw_wins}")
         print(f"[DEBUG] forced reasons: {forced}")
         print(f"[DEBUG] peaks before NMS: {len(all_peaks)}")
@@ -252,8 +441,8 @@ def main() -> None:
     ap.add_argument("--abs_thresh", type=float, default=0.0)
     ap.add_argument("--max_fg", type=float, default=0.01)
 
-    ap.add_argument("--detect_dist", type=int, default=10)  
-    ap.add_argument("--merge_dist", type=int, default=6)  
+    ap.add_argument("--detect_dist", type=int, default=6)
+    ap.add_argument("--merge_dist", type=int, default=14)
 
     ap.add_argument("--max_area", type=int, default=120)
     ap.add_argument("--peak_rel", type=float, default=1.0)
@@ -267,6 +456,7 @@ def main() -> None:
     ap.add_argument("--hefe_min_abs", type=float, default=0.08)
     ap.add_argument("--hefe_min_rel", type=float, default=0.60)
     ap.add_argument("--leuko_margin_over_ery", type=float, default=0.015)
+    ap.add_argument("--leuko_ratio", type=float, default=0.80)
 
     ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
@@ -294,6 +484,7 @@ def main() -> None:
         hefe_min_abs=float(args.hefe_min_abs),
         hefe_min_rel=float(args.hefe_min_rel),
         leuko_margin_over_ery=float(args.leuko_margin_over_ery),
+        leuko_ratio=float(args.leuko_ratio),
         debug=bool(args.debug),
     )
     print(counts)
