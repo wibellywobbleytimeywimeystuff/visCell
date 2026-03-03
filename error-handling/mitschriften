@@ -27,3 +27,18 @@ Schriftfarbwechsel nach validierung
  Kameraaktualisierung
     - beim neuen anstecken oder trennen einer Kamera soll das Dropdown menü aktualisiert werden
     - neuer button?
+
+
+
+
+
+    Berichtsgenerator:
+    - Erstellung einer Probedatei fürs Design
+    - Konvertierung in eine ".json"-Datei -> erstellung eines Templates
+            -> wird genutzt als Vorlage für die Erstellung der Berichte
+    - einfügen und umbennenung der Variablen aus dem Popup-Fenster im GUI
+    - einflegung der Variablen in das Template
+    - implementierung der Bibliotheken für berichterstellung und lesen einer json-datei
+    - richtigen dateipfad für das zugreifen aufs template einfügen
+    - rahmenbedingungen festlegen für das Layout des Berichts
+    - Button für die Erstellung des Berichts funktion zuweisen
