@@ -383,21 +383,29 @@ class App(ctk.CTk):
         self._update_capture_button_state()
 
     # =========================
+    # Reset Button: Sättigung/Kontrast/Helligkeit zurück auf 50/50/50
+    # =========================
+    def _reset_adjustments(self):
+        if self.saturation_slider is not None:
+            self.saturation_slider.set(50)
+        if self.contrast_slider is not None:
+            self.contrast_slider.set(50)
+        if self.brightness_slider is not None:
+            self.brightness_slider.set(50)
+
+        self._on_adjust_changed()
+        self._set_status("Bildparameter zurückgesetzt (50/50/50)")
+
+    # =========================
     # Letterbox-Farbe: exakt App/GUI-Hintergrund (main_frame) in Light/Dark
     # =========================
     def _resolve_ctk_color(self, color):
-        """
-        customtkinter-Farbtuples sind i.d.R. (light, dark).
-        """
         if isinstance(color, (tuple, list)) and len(color) >= 2:
             mode = ctk.get_appearance_mode()  # "Dark" oder "Light"
             return color[1] if mode == "Dark" else color[0]
         return color
 
     def _get_gui_bg_rgb(self):
-        """
-        Balkenfarbe = Hintergrundfarbe von main_frame (passt optisch zur App).
-        """
         try:
             src = self.main_frame if self.main_frame is not None else self
             c = self._resolve_ctk_color(src.cget("fg_color"))
@@ -410,7 +418,6 @@ class App(ctk.CTk):
     # Resize helper: FIT (Letterbox, kein Crop)
     # =========================
     def _resize_fit_letterbox(self, rgb, target_w, target_h, bg=(0, 0, 0)):
-        """Skaliert mit Aspect-Ratio, ohne Cropping. Rest wird mit bg aufgefüllt (Letterbox)."""
         h, w = rgb.shape[:2]
         if w <= 0 or h <= 0 or target_w <= 0 or target_h <= 0:
             return rgb
@@ -437,7 +444,6 @@ class App(ctk.CTk):
         self._set_live_background(self.live_bg)
         self._hide_overlay_text()
 
-        # OPTION B: Zielgröße NICHT live aus winfo holen, sondern gelockt verwenden
         target_w = int(self._disp_w)
         target_h = int(self._disp_h)
         if target_w <= 50 or target_h <= 50:
@@ -455,11 +461,9 @@ class App(ctk.CTk):
     # Auto-Resize beim Fensterziehen (importiertes/freeze Bild mitskalieren)
     # =========================
     def _on_video_resize(self, event=None):
-        """Wird beim Resize des Video-Labels/Containers aufgerufen -> Zielgröße updaten + Bild neu rendern (debounced)."""
         if self.video_label is None:
             return
 
-        # OPTION B: Nur hier die Zielgröße ändern
         w = self.video_label.winfo_width()
         h = self.video_label.winfo_height()
         if w > 50 and h > 50:
@@ -478,7 +482,6 @@ class App(ctk.CTk):
         self._resize_after_id = self.after(80, self._redraw_current_image_to_fit)
 
     def _redraw_current_image_to_fit(self):
-        """Zeichnet das aktuell letzte Bild passend zur neuen Label-Größe."""
         self._resize_after_id = None
         if self.video_label is None or self.last_frame is None:
             return
@@ -626,7 +629,6 @@ class App(ctk.CTk):
 
                 rgb = cv2.cvtColor(adjusted, cv2.COLOR_BGR2RGB)
 
-                # OPTION B: Render immer auf gelockter Zielgröße
                 target_w = int(self._disp_w)
                 target_h = int(self._disp_h)
                 if target_w <= 50 or target_h <= 50:
@@ -1277,7 +1279,11 @@ class App(ctk.CTk):
         self.btn_validate = ctk.CTkButton(button_row, text="Validieren", command=self.start_validation, width=80)
         self.btn_validate.pack(side="left", padx=5, pady=(10, 6))
 
+        # AutoAdjust + Reset NEBENEINANDER (Reset rechts neben AutoAdjust)
         ctk.CTkButton(button_row, text="AutoAdjust", command=self._auto_adjust, width=80)\
+            .pack(side="left", padx=5, pady=(10, 6))
+
+        ctk.CTkButton(button_row, text="Reset", command=self._reset_adjustments, width=80)\
             .pack(side="left", padx=5, pady=(10, 6))
 
         self.status_label = ctk.CTkLabel(function_frame, text="Bereit", text_color="#00B7FF")
@@ -1287,7 +1293,8 @@ class App(ctk.CTk):
         self.progress_frame.pack(pady=6)
         self.progress_frame.pack_forget()
 
-        self.progress = ctk.CTkProgressBar(self.progress_frame, width=300, height=16)
+        self.progress = ctk.CTkCTkProgressBar(self.progress_frame, width=300, height=16) if hasattr(ctk, "CTkCTkProgressBar") else ctk.CTkProgressBar(self.progress_frame, width=300, height=16)
+        # ^ fallback, falls deine customtkinter-Version anders ist
         self.progress.pack(pady=6)
         self.progress.set(0)
 
