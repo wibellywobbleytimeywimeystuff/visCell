@@ -25,8 +25,12 @@ Schriftfarbwechsel nach validierung
  - if funktion die guckt welche was angezeigt wird und wenn farbe gewechselt wird entweder beibehält oder andere nimmt, für eine bessere Anzeige fürs bessere Lesen
 
  Kameraaktualisierung
-    - beim neuen anstecken oder trennen einer Kamera soll das Dropdown menü aktualisiert werden
-    - neuer button?
+    - soll nur aktualisiert werden, wenn man auf das Dropdown Menü klickt, damit es nicht ständig aktualisiert wird
+    - Lösung: Aktualisierung des Dropdown Menüs nur bei Klick auf das Dropdown Menü
+
+Originalbild zurücksetzen button eingefügt 
+
+
 
 
 
