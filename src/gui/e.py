@@ -62,7 +62,7 @@ class App(ctk.CTk):
         self.model_path_unstained = (self.project_root / "runs" / "viscell_unet_512_cpu_unstained" / "model_best.keras")
         self.validation_ref_image = (self.project_root / "data" / "ref" / "ref_113_2_0.png")
 
-        # ===== Kamera / Video Status-Variablen =====
+        # ===== Kamera / Video Status-Variablen ===== 
         self.cap = None
         self.is_streaming = False
         self.current_cam_index = None
