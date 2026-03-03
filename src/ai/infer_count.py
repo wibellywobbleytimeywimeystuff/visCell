@@ -111,14 +111,29 @@ def _pick_class(
     hefe_min_rel: float,
     leuko_margin_over_ery: float,
     leuko_ratio: float,
+    leuko_gate_abs: float,
+    leuko_gate_ratio: float,
     thr_tile: float,
 ) -> Tuple[str, str]:
-    """
-    returns (picked_class, reason)
-    reason in {"ok","margin","leuko_guard","hefe_guard"}
-    """
+    """returns (picked_class, reason)"""
     v_raw = vec3.astype(np.float32)
     v = v_raw * class_weights.astype(np.float32)
+
+    leuko_min_eff = max(float(leuko_min_abs), float(leuko_min_rel) * float(thr_tile))
+    hefe_min_eff  = max(float(hefe_min_abs),  float(hefe_min_rel)  * float(thr_tile))
+
+    l_raw = float(v_raw[IDX["leuko"]])
+    e_raw = float(v_raw[IDX["ery"]])
+
+    # ---- Leuko one-vs-rest gate ----
+    if float(leuko_gate_abs) > 0.0 or float(leuko_gate_ratio) > 0.0:
+        if l_raw >= leuko_min_eff:
+            ok_abs = (float(leuko_gate_abs) <= 0.0) or (l_raw >= float(leuko_gate_abs))
+            ok_ratio = (float(leuko_gate_ratio) <= 0.0) or (l_raw >= e_raw * float(leuko_gate_ratio))
+            ok_margin = (l_raw - e_raw) >= float(leuko_margin_over_ery)
+            ok_ratio2 = (float(leuko_ratio) <= 0.0) or (l_raw >= e_raw * float(leuko_ratio))
+            if ok_abs and ok_ratio and ok_margin and ok_ratio2:
+                return ("leuko", "ok")
 
     idx = np.argsort(v)[::-1]
     top = int(idx[0]); second = int(idx[1])
@@ -126,42 +141,64 @@ def _pick_class(
     if (top1 - top2) < float(class_margin):
         return ("" if ambiguous_policy == "drop" else "ery", "margin")
 
-    leuko_min_eff = max(float(leuko_min_abs), float(leuko_min_rel) * float(thr_tile))
-    hefe_min_eff  = max(float(hefe_min_abs),  float(hefe_min_rel)  * float(thr_tile))
-
     if top == IDX["leuko"]:
-        if float(v_raw[IDX["leuko"]]) < leuko_min_eff:
+        if l_raw < leuko_min_eff:
             return ("ery", "leuko_guard")
-        if float(v_raw[IDX["leuko"]]) < float(v_raw[IDX["ery"]]) * float(leuko_ratio):
+        if (l_raw - e_raw) < float(leuko_margin_over_ery):
             return ("ery", "leuko_guard")
+        if float(leuko_gate_abs) > 0.0 and l_raw < float(leuko_gate_abs):
+            return ("ery", "leuko_guard")
+        if float(leuko_gate_ratio) > 0.0 and l_raw < e_raw * float(leuko_gate_ratio):
+            return ("ery", "leuko_guard")
+
     if top == IDX["hefe"]:
         if float(v_raw[IDX["hefe"]]) < hefe_min_eff:
             return ("ery", "hefe_guard")
 
     return (CLASSES[top], "ok")
+def infer_and_count(    model_path: Path,
 
-def infer_and_count(
-    model_path: Path,
     image_path: Path,
+
     spec: TileSpec,
+
     quantile: float,
+
     abs_thresh: float,
+
     max_fg: float,
+
     detect_dist: int,
+
     merge_dist: int,
+
     max_area: int,
+
     peak_rel: float,
+
     class_weights: np.ndarray,
+
     class_margin: float,
+
     ambiguous_policy: str,
+
     leuko_min_abs: float,
+
     leuko_min_rel: float,
+
     hefe_min_abs: float,
+
     hefe_min_rel: float,
+
     leuko_margin_over_ery: float,
-    leuko_ratio: float,
-    debug: bool,
-) -> Dict[str, int]:
+
+    leuko_ratio: float = 0.0,
+
+    leuko_gate_abs: float = 0.0,
+
+    leuko_gate_ratio: float = 0.0,
+
+    debug: bool = False,) -> Dict[str, int]:
     img = cv2.imread(str(image_path))
     if img is None:
         raise FileNotFoundError(f"Kann Bild nicht lesen: {image_path}")
@@ -185,7 +222,11 @@ def infer_and_count(
     if debug:
         print(f"[DEBUG] image={w}x{h}, tiles={len(tiles)}, tile={spec.tile}, overlap={spec.overlap}")
         print(f"[DEBUG] weights={class_weights.tolist()} class_margin={class_margin} ambiguous_policy={ambiguous_policy}")
-        print(f"[DEBUG] leuko_min_abs={leuko_min_abs} leuko_min_rel={leuko_min_rel} hefe_min_abs={hefe_min_abs} hefe_min_rel={hefe_min_rel} leuko_margin_over_ery={leuko_margin_over_ery}")
+        print(
+            f"[DEBUG] leuko_min_abs={leuko_min_abs} leuko_min_rel={leuko_min_rel} "
+            f"hefe_min_abs={hefe_min_abs} hefe_min_rel={hefe_min_rel} "
+            f"leuko_margin_over_ery={leuko_margin_over_ery} leuko_ratio={leuko_ratio} leuko_gate_abs={leuko_gate_abs}"
+        )
 
     for ti, (x0, y0, x1, y1) in enumerate(tiles, start=1):
         tile = img[y0:y1, x0:x1]
@@ -242,7 +283,7 @@ def infer_and_count(
             picked, reason = _pick_class(
                 vec, class_weights, class_margin, ambiguous_policy,
                 leuko_min_abs, leuko_min_rel, hefe_min_abs, hefe_min_rel,
-                leuko_margin_over_ery, leuko_ratio, thr_tile=thr
+                leuko_margin_over_ery, leuko_ratio, leuko_gate_abs, leuko_gate_ratio, thr_tile=thr
             )
             if reason != "ok":
                 forced[reason] += 1
@@ -281,28 +322,49 @@ def infer_and_count(
         totals[p.cls] += 1
     return totals
 
-def infer_and_count_array(
-    model_path: Path,
+def infer_and_count_array(    model_path: Path,
+
     image_bgr: np.ndarray,
+
     spec: TileSpec,
+
     quantile: float,
+
     abs_thresh: float,
+
     max_fg: float,
+
     detect_dist: int,
+
     merge_dist: int,
+
     max_area: int,
+
     peak_rel: float,
+
     class_weights: np.ndarray,
+
     class_margin: float,
+
     ambiguous_policy: str,
+
     leuko_min_abs: float,
+
     leuko_min_rel: float,
+
     hefe_min_abs: float,
+
     hefe_min_rel: float,
+
     leuko_margin_over_ery: float,
-    leuko_ratio: float,
-    debug: bool,
-) -> Dict[str, int]:
+
+    leuko_ratio: float = 0.0,
+
+    leuko_gate_abs: float = 0.0,
+
+    leuko_gate_ratio: float = 0.0,
+
+    debug: bool = False,) -> Dict[str, int]:
     """Wie infer_and_count(), aber nimmt das Bild direkt als BGR-NumPy-Array.
 
     Dadurch keine Unterschiede durch PNG-Encode/Decode im GUI.
@@ -333,7 +395,11 @@ def infer_and_count_array(
     if debug:
         print(f"[DEBUG] image={w}x{h}, tiles={len(tiles)}, tile={spec.tile}, overlap={spec.overlap}")
         print(f"[DEBUG] weights={class_weights.tolist()} class_margin={class_margin} ambiguous_policy={ambiguous_policy}")
-        print(f"[DEBUG] leuko_min_abs={leuko_min_abs} leuko_min_rel={leuko_min_rel} hefe_min_abs={hefe_min_abs} hefe_min_rel={hefe_min_rel} leuko_margin_over_ery={leuko_margin_over_ery}")
+        print(
+            f"[DEBUG] leuko_min_abs={leuko_min_abs} leuko_min_rel={leuko_min_rel} "
+            f"hefe_min_abs={hefe_min_abs} hefe_min_rel={hefe_min_rel} "
+            f"leuko_margin_over_ery={leuko_margin_over_ery} leuko_ratio={leuko_ratio} leuko_gate_abs={leuko_gate_abs}"
+        )
 
     for ti, (x0, y0, x1, y1) in enumerate(tiles, start=1):
         tile = img[y0:y1, x0:x1]
@@ -390,7 +456,7 @@ def infer_and_count_array(
             picked, reason = _pick_class(
                 vec, class_weights, class_margin, ambiguous_policy,
                 leuko_min_abs, leuko_min_rel, hefe_min_abs, hefe_min_rel,
-                leuko_margin_over_ery, leuko_ratio, thr_tile=thr
+                leuko_margin_over_ery, leuko_ratio, leuko_gate_abs, leuko_gate_ratio, thr_tile=thr
             )
             if reason != "ok":
                 forced[reason] += 1
@@ -456,7 +522,9 @@ def main() -> None:
     ap.add_argument("--hefe_min_abs", type=float, default=0.08)
     ap.add_argument("--hefe_min_rel", type=float, default=0.60)
     ap.add_argument("--leuko_margin_over_ery", type=float, default=0.015)
-    ap.add_argument("--leuko_ratio", type=float, default=0.80)
+    ap.add_argument("--leuko_gate_ratio", type=float, default=0.0, help="Soft ratio gate vs ery: leuko>=ery*ratio. 0 disables.")
+    ap.add_argument("--leuko_gate_abs", type=float, default=0.0, help="Absolute Leuko gate (one-vs-rest). 0 disables.")
+    ap.add_argument("--leuko_ratio", type=float, default=0.0)
 
     ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
@@ -485,6 +553,8 @@ def main() -> None:
         hefe_min_rel=float(args.hefe_min_rel),
         leuko_margin_over_ery=float(args.leuko_margin_over_ery),
         leuko_ratio=float(args.leuko_ratio),
+        leuko_gate_abs=float(args.leuko_gate_abs),
+        leuko_gate_ratio=float(args.leuko_gate_ratio),
         debug=bool(args.debug),
     )
     print(counts)
