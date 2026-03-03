@@ -816,8 +816,8 @@ class App(ctk.CTk):
                 quantile=0.9943,  # 0.9943
                 abs_thresh=0.015, # 0.0
                 max_fg=0.01,  # 0.01
-                detect_dist=10,  # 6
-                merge_dist=20,  # 14
+                detect_dist=11,  # 6
+                merge_dist=26,  # 14 Hebel Erys drücken
                 max_area=120,  # 120
                 peak_rel=1.0,  # 1.0
                 class_weights=class_weights,
