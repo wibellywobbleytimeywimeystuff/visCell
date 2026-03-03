@@ -814,7 +814,7 @@ class App(ctk.CTk):
                 image_path=Path(tmp_path),
                 spec=infermod.TileSpec(tile=512, overlap=64),
                 quantile=0.9943,  # 0.9943
-                abs_thresh=0.015, # 0.0
+                abs_thresh=0.016, # 0.0
                 max_fg=0.01,  # 0.01
                 detect_dist=11,  # 6
                 merge_dist=26,  # 14 Hebel Erys drücken
