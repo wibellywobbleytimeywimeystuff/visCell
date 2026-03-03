@@ -813,25 +813,22 @@ class App(ctk.CTk):
                 model_path=Path(model_path),
                 image_path=Path(tmp_path),
                 spec=infermod.TileSpec(tile=512, overlap=64),
-                quantile=0.9943,
-                abs_thresh=0.0,
-                max_fg=0.01,
-                detect_dist=6,
-                merge_dist=14,
-                max_area=120,
-                peak_rel=1.0,
+                quantile=0.9943,  # 0.9943
+                abs_thresh=0.015, # 0.0
+                max_fg=0.01,  # 0.01
+                detect_dist=10,  # 6
+                merge_dist=20,  # 14
+                max_area=120,  # 120
+                peak_rel=1.0,  # 1.0
                 class_weights=class_weights,
-                class_margin=0.02,
+                class_margin=0.02,  # 0.02
                 ambiguous_policy="ery",
-                leuko_min_abs=0.06,
-                leuko_min_rel=0.55,
-                hefe_min_abs=0.08,
-                hefe_min_rel=0.60,
-                leuko_margin_over_ery=0.015,
-                leuko_ratio=0.0,
-                leuko_gate_abs=0.16,
-                leuko_gate_ratio=0.68,
-                debug=False,
+                leuko_min_abs=0.06,  # 0.06
+                leuko_min_rel=0.55,  # 0.55
+                hefe_min_abs=0.08,  # 0.08
+                hefe_min_rel=0.60,  # 0.60
+                leuko_margin_over_ery=0.015,  # 0.015
+                debug=True,
             )
 
             self.ki_ery = int(counts.get("ery", 0))
@@ -964,22 +961,22 @@ class App(ctk.CTk):
             model_path=Path(model_path),
             image_path=Path(self.validation_ref_image),
             spec=infermod.TileSpec(tile=512, overlap=64),
-            quantile=0.9943,
-            abs_thresh=0.0,
-            max_fg=0.01,
-            detect_dist=6,
-            merge_dist=14,
-            max_area=120,
-            peak_rel=1.0,
+            quantile=0.9943,  # 0.9943
+            abs_thresh=0.2, # 0.0
+            max_fg=0.01,  # 0.01
+            detect_dist=6,  # 6
+            merge_dist=14,  # 14
+            max_area=120,  # 120
+            peak_rel=1.0,  # 1.0
             class_weights=class_weights,
-            class_margin=0.02,
+            class_margin=0.02,  # 0.02
             ambiguous_policy="ery",
-            leuko_min_abs=0.06,
-            leuko_min_rel=0.55,
-            hefe_min_abs=0.08,
-            hefe_min_rel=0.60,
-            leuko_margin_over_ery=0.015,
-            debug=False,
+            leuko_min_abs=0.06,  # 0.06
+            leuko_min_rel=0.55,  # 0.55
+            hefe_min_abs=0.08,  # 0.08
+            hefe_min_rel=0.60,  # 0.60
+            leuko_margin_over_ery=0.015,  # 0.015
+            debug=True,
         )
 
         self.ki_ery = int(counts.get("ery", 0))

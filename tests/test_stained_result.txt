@@ -1,10 +1,10 @@
 image;ery;hefe;leuko
-A_st_001.png;113;0;0
-A_st_020.png;132;0;0
-A_st_023.png;119;0;0
-A_st_028.png;99;0;0
-A_st_030.png;171;0;2
-A_st_034.png;125;0;0
-A_st_058.png;151;0;1
-A_st_059.png;130;0;0
+A_st_001.png;161;0;0
+A_st_020.png;142;0;0
+A_st_023.png;154;0;0
+A_st_028.png;141;0;0
+A_st_030.png;243;0;2
+A_st_034.png;154;0;0
+A_st_058.png;182;0;1
+A_st_059.png;151;0;0
 

@@ -1,5 +1,5 @@
 image;ery;hefe;leuko
-A_ut_006.png;155;0;0
-A_ut_007.png;155;0;0
-A_ut_011.png;112;0;0
-A_ut_014.png;99;0;0
+A_ut_006.png;212;0;0
+A_ut_007.png;206;0;0
+A_ut_011.png;123;0;0
+A_ut_014.png;115;0;0
