@@ -1,6 +1,7 @@
 # ============================
 # 1 ) Bibliotheken importieren
 # ============================
+import json
 import threading
 import customtkinter as ctk
 import tkinter as tk
@@ -14,6 +15,10 @@ from datetime import datetime
 from PIL import Image, ImageTk
 import sys
 from pathlib import Path
+
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
 
 # ============================
 #  2 ) Globale Einstellungen
@@ -154,6 +159,8 @@ class App(ctk.CTk):
 
         # Initial Button-Status setzen
         self._update_capture_button_state()
+
+        self.report_template_path = (self.project_root / "docs" /"report_template.json")
 
         # Zielgröße nach erstem Layout aus dem Label holen
         self.after(0, self._init_display_size_from_label)
@@ -891,6 +898,112 @@ class App(ctk.CTk):
             if self.btn_analyze is not None:
                 self.after(0, lambda: self.btn_analyze.configure(state="normal"))
 
+    def _export_report(self):
+        if self.last_frame is None:
+            self._set_status("Kein Bild vorhanden – erst Kamera/Bild importieren")
+            return
+
+        # Template laden
+        if not self.report_template_path.exists():
+            messagebox.showerror("Bericht", f"Template nicht gefunden:\n{self.report_template_path}")
+            return
+
+        try:
+            with open(self.report_template_path, "r", encoding="utf-8") as f:
+                template = json.load(f)
+        except Exception as e:
+            messagebox.showerror("Bericht", f"Template kann nicht gelesen werden:\n{e}")
+            return
+
+        # Platzhalter-Daten sammeln
+        m = self.metadata.copy()
+        data = {
+            **m,
+            "ki_ery": int(getattr(self, "ki_ery", 0)),
+            "ki_leuko": int(getattr(self, "ki_leuko", 0)),
+            "ki_hefe": int(getattr(self, "ki_hefe", 0)),
+            "stain": self.stain_var.get(),
+        }
+
+        # Speicherort wählen
+        ts = datetime.now().strftime("%d%m%Y_%H%M%S")
+        default_name = f"visCell_report_{ts}.pdf"
+        save_path = filedialog.asksaveasfilename(
+            title="Bericht als PDF speichern",
+            initialdir=os.path.abspath(self.capture_dir),
+            initialfile=default_name,
+            defaultextension=".pdf",
+            filetypes=[("PDF", "*.pdf")],
+        )
+        if not save_path:
+            self._set_status("Bericht-Export abgebrochen")
+            return
+
+        # PDF erzeugen (simple, aber robust)
+        try:
+            c = canvas.Canvas(save_path, pagesize=A4)
+            page_w, page_h = A4
+
+            x = 20 * mm
+            y = page_h - 20 * mm
+
+            title = template.get("title", "Analysebericht")
+            c.setFont("Helvetica-Bold", 16)
+            c.drawString(x, y, title)
+            y -= 12 * mm
+
+            c.setFont("Helvetica", 11)
+
+            def render_line(line: str) -> str:
+                # sehr einfacher Platzhalter-Replace: {{key}}
+                out = line
+                for k, v in data.items():
+                    out = out.replace("{{" + str(k) + "}}", str(v))
+                return out
+
+            sections = template.get("sections", [])
+            for sec in sections:
+                heading = sec.get("heading", "")
+                lines = sec.get("lines", [])
+
+                if heading:
+                    c.setFont("Helvetica-Bold", 12)
+                    c.drawString(x, y, heading)
+                    y -= 7 * mm
+                    c.setFont("Helvetica", 11)
+
+                for line in lines:
+                    txt = render_line(str(line))
+
+                    # Seitenumbruch
+                    if y < 20 * mm:
+                        c.showPage()
+                        c.setFont("Helvetica", 11)
+                        y = page_h - 20 * mm
+
+                    # sehr simples Text-Wrapping (kurz & stabil)
+                    max_chars = 95
+                    while len(txt) > max_chars:
+                        c.drawString(x, y, txt[:max_chars])
+                        txt = txt[max_chars:]
+                        y -= 5 * mm
+                        if y < 20 * mm:
+                            c.showPage()
+                            c.setFont("Helvetica", 11)
+                            y = page_h - 20 * mm
+
+                    c.drawString(x, y, txt)
+                    y -= 5 * mm
+
+                y -= 4 * mm
+
+            c.save()
+            self._set_status(f"Bericht exportiert: {save_path}")
+
+        except Exception as e:
+            messagebox.showerror("Bericht", f"PDF konnte nicht erstellt werden:\n{e}")
+            self._set_status("Bericht-Export fehlgeschlagen")
+
     # =========================
     # 10 ) Metadaten Popup
     # =========================
@@ -1210,7 +1323,7 @@ class App(ctk.CTk):
             command=lambda: self._open_metadata_popup(analysis_label),
         ).pack(side="left", pady=10)
 
-        ctk.CTkButton(export_frame, text="Bericht exportieren").pack(side="left", padx=10, pady=10)
+        ctk.CTkButton(export_frame, text="Bericht exportieren", command=self._export_report).pack(side="left", padx=10, pady=10)
 
         slider_frame = ctk.CTkFrame(right_panel)
         slider_frame.pack(fill="x", padx=10, pady=10)
