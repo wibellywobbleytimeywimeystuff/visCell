@@ -13,7 +13,7 @@
         { "label": "Labor",       "key": "labpr" }
       ]
     },
-    {
+    { 
       "title": "Equipment und Probe",
       "fields": [
         { "label": "Mikroskop",      "key": "equipment" },

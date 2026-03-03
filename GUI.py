@@ -1017,7 +1017,11 @@ class App(ctk.CTk):
             command=lambda: self._open_metadata_popup(analysis_label),
         ).pack(side="left", pady=10)
 
-        ctk.CTkButton(export_frame, text="Bericht exportieren").pack(side="left", padx=10, pady=10)
+        ctk.CTkButton(
+            export_frame,
+            text="Bericht exportieren",
+            command=self._export_report
+        ).pack(side="left", padx=10, pady=10)
 
         slider_frame = ctk.CTkFrame(right_panel)
         slider_frame.pack(fill="x", padx=10, pady=10)
