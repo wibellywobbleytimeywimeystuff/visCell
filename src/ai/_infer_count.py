@@ -126,14 +126,15 @@ def _pick_class(
     e_raw = float(v_raw[IDX["ery"]])
 
     # ---- Leuko one-vs-rest gate ----
-    if l_raw >= leuko_min_eff:
-        ok_abs = (leuko_gate_abs <= 0.0) or (l_raw >= leuko_gate_abs)
-        ok_ratio = (leuko_gate_ratio <= 0.0) or (l_raw >= e_raw * leuko_gate_ratio)
-        ok_margin = (l_raw - e_raw) >= leuko_margin_over_ery
+    if float(leuko_gate_abs) > 0.0 or float(leuko_gate_ratio) > 0.0:
+        if l_raw >= leuko_min_eff:
+            ok_abs = (float(leuko_gate_abs) <= 0.0) or (l_raw >= float(leuko_gate_abs))
+            ok_ratio = (float(leuko_gate_ratio) <= 0.0) or (l_raw >= e_raw * float(leuko_gate_ratio))
+            ok_margin = (l_raw - e_raw) >= float(leuko_margin_over_ery)
+            ok_ratio2 = (float(leuko_ratio) <= 0.0) or (l_raw >= e_raw * float(leuko_ratio))
+            if ok_abs and ok_ratio and ok_margin and ok_ratio2:
+                return ("leuko", "ok")
 
-        if ok_abs and ok_ratio and ok_margin:
-            return ("leuko", "ok")
-        
     idx = np.argsort(v)[::-1]
     top = int(idx[0]); second = int(idx[1])
     top1 = float(v[top]); top2 = float(v[second])

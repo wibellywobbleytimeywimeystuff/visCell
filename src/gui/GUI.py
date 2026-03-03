@@ -807,16 +807,17 @@ class App(ctk.CTk):
             import numpy as _np
             import infer_count as infermod
 
-            class_weights = _np.array([1.0, 0.0, 1.2], dtype=_np.float32)
+            class_weights = _np.array([1.0, 0.0, 1.8], dtype=_np.float32)
 
+            # Analyse
             counts = infermod.infer_and_count(
                 model_path=Path(model_path),
                 image_path=Path(tmp_path),
                 spec=infermod.TileSpec(tile=512, overlap=64),
                 quantile=0.9943,  # 0.9943
-                abs_thresh=0.016, # 0.0
+                abs_thresh=0.015, # 0.0
                 max_fg=0.01,  # 0.01
-                detect_dist=11,  # 6
+                detect_dist=10,  # 6
                 merge_dist=26,  # 14 Hebel Erys drücken
                 max_area=120,  # 120
                 peak_rel=1.0,  # 1.0
@@ -824,10 +825,10 @@ class App(ctk.CTk):
                 class_margin=0.02,  # 0.02
                 ambiguous_policy="ery",
                 leuko_min_abs=0.06,  # 0.06
-                leuko_min_rel=0.55,  # 0.55
+                leuko_min_rel=0.0,  # 0.55
                 hefe_min_abs=0.08,  # 0.08
                 hefe_min_rel=0.60,  # 0.60
-                leuko_margin_over_ery=0.015,  # 0.015
+                leuko_margin_over_ery= -0.07,  # 0.015
                 debug=True,
             )
 
@@ -957,25 +958,26 @@ class App(ctk.CTk):
 
         class_weights = _np.array([1.0, 0.0, 1.2], dtype=_np.float32)
 
+        # Validierung
         counts = infermod.infer_and_count(
             model_path=Path(model_path),
             image_path=Path(self.validation_ref_image),
             spec=infermod.TileSpec(tile=512, overlap=64),
             quantile=0.9943,  # 0.9943
-            abs_thresh=0.2, # 0.0
+            abs_thresh=0.015, # 0.0
             max_fg=0.01,  # 0.01
-            detect_dist=6,  # 6
-            merge_dist=14,  # 14
+            detect_dist=10,  # 6
+            merge_dist=26,  # 14 Hebel Erys drücken
             max_area=120,  # 120
             peak_rel=1.0,  # 1.0
             class_weights=class_weights,
             class_margin=0.02,  # 0.02
             ambiguous_policy="ery",
             leuko_min_abs=0.06,  # 0.06
-            leuko_min_rel=0.55,  # 0.55
+            leuko_min_rel=0.0,  # 0.55
             hefe_min_abs=0.08,  # 0.08
             hefe_min_rel=0.60,  # 0.60
-            leuko_margin_over_ery=0.015,  # 0.015
+            leuko_margin_over_ery= -0.02,  # 0.015
             debug=True,
         )
 
