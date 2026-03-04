@@ -40,7 +40,7 @@ colormode = ("Hellmodus")
 ctk.set_appearance_mode(appearance)
 ctk.set_default_color_theme("blue")
 
-deltatol = 0.10  # Validation: Toleranz (dezimal)
+deltatol = 0.1  # Validation: Toleranz (dezimal)
 
 # Globale Farben
 val_refcolor = "#00B7FF"
@@ -58,8 +58,8 @@ class App(ctk.CTk):
 
         # ===== Fenster Einstellungen =====
         self.title("visCell")
-        self.geometry("1200x600")
-        self.minsize(900, 750)
+        self.geometry("1300x810")
+        self.minsize(1200, 790)
 
         # ===== Validierung: Grundwerte Zellen =====
         self.soll_ery = 0
@@ -1206,6 +1206,8 @@ class App(ctk.CTk):
         toleranz = max(1, round(soll * deltatol))
         untergrenze = soll - toleranz
         obergrenze = soll + toleranz
+        self.delta_ery = soll - ist
+        self.delta_ery_prozent = round(int(100)/soll*self.delta_ery, 2)
 
         ok = untergrenze <= ist <= obergrenze
         return ok, toleranz
@@ -1213,18 +1215,18 @@ class App(ctk.CTk):
     def _popup_confirm(self, ist: int, soll: int, tol: int):
         if self.validierung_ok:
             text = (
-                f"Validierung erfolgreich.\n\n"
-                f"Referenzwert Erythrozyten: {soll}  Leukozyten: {int(self.soll_leuko)}  Hefe: {int(self.soll_hefe)}\n"
-                f"Istwert Erythrozyten: {ist}  Leukozyten: {int(self.ki_leuko)}  Hefe: {int(self.ki_hefe)}\n"
-                f"Toleranz (Ery): ±{tol} Zellen (±{deltatol*100:.0f}%)\n\n"
+                f"""Validierung erfolgreich.\n\n"""
+                f"Sollwert Erythrozyten: {soll}  Leukozyten: {int(self.soll_leuko)}  Hefe: {int(self.soll_hefe)}\n"
+                f"Istwert   Erythrozyten: {ist}  Leukozyten: {int(self.ki_leuko)}  Hefe: {int(self.ki_hefe)}\n\n"
+                f"Toleranz: ±{self.delta_ery} Zellen ±({self.delta_ery_prozent}% / {deltatol*100:.2f}%)\n\n"
                 f"Bestätigen Sie die Validierung?"
             )
         else:
             text = (
                 f"Validierung nicht erfolgreich.\n\n"
-                f"Referenzwert Erythrozyten: {soll}  Leukozyten: {int(self.soll_leuko)}  Hefe: {int(self.soll_hefe)}\n"
-                f"Istwert Erythrozyten: {ist}  Leukozyten: {int(self.ki_leuko)}  Hefe: {int(self.ki_hefe)}\n"
-                f"Toleranz (Ery): ±{tol} Zellen (±{deltatol*100:.0f}%)\n\n"
+                f"Sollwert Erythrozyten: {soll}  Leukozyten: {int(self.soll_leuko)}  Hefe: {int(self.soll_hefe)}\n"
+                f"Istwert   Erythrozyten: {ist}  Leukozyten: {int(self.ki_leuko)}  Hefe: {int(self.ki_hefe)}\n\n"
+                f"Toleranz: ±{self.delta_ery} Zellen ±({self.delta_ery_prozent}% / {deltatol*100:.2f}%)\n\n"
                 f"Trotzdem als erfolgreich bestätigen?"
             )
 
