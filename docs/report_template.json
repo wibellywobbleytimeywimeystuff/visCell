@@ -1,0 +1,34 @@
+{
+  "title": "visCell Analysebericht",
+  "sections": [
+    {
+      "heading": "Metadaten",
+      "lines": [
+        "Datum: {{Analysedatum}}",
+        "Prüfer: {{Prüfer}}",
+        "Labor: {{Labor}}",
+        "Equipment: {{Equipment}}",
+        "Vergrößerung: {{Vergrößerung}}",
+        "Probennummer: {{Probennummer}}"
+      ]
+    },
+    {
+      "heading": "Ergebnisse",
+      "lines": [
+        "Erythrozyten: {{ki_ery}}",
+        "Leukozyten: {{ki_leuko}}",
+        "Hefezellen: {{ki_hefe}}",
+        "Färbung: {{stain}}"
+      ]
+    },
+    {
+      "heading": "Notizen",
+      "lines": [
+        "{{Notizen}}"
+      ]
+    },
+    {
+      "lines": ["{{Analysedatum}}", "{{Prüfer}}"]
+    }
+  ]
+}

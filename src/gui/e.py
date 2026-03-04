@@ -1,3 +1,18 @@
+"""
+Modul: aust_gui.py
+Beschreibung:
+Dieses Skript ist die grafische Benutzeroberfläche des Projekts
+Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse
+von mikroskopischen Zellstrukturen.
+
+Autor: Max Sielhorst
+Co-Autor: Marlon Aust für gesamten Hell-/Dunkelmodus, Integrierung KI und Validierungsfunktion
+Co-Autor: Sven Klapp für Error-Handling
+Projektname: visCell
+Projekt: Entwicklung einer portablen Windows-Anwendung zur automatisierten KI-Analyse
+von mikroskopischen Zellstrukturen.
+"""
+
 # ============================
 # 1 ) Bibliotheken importieren
 # ============================
@@ -14,6 +29,10 @@ from datetime import datetime
 from PIL import Image, ImageTk
 import sys
 from pathlib import Path
+import json
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
 
 # ============================
 #  2 ) Globale Einstellungen
@@ -23,7 +42,7 @@ colormode = ("Hellmodus")
 ctk.set_appearance_mode(appearance)
 ctk.set_default_color_theme("blue")
 
-deltatol = 0.10  # Validation: Toleranz (dezimal)
+deltatol = 0.1  # Validation: Toleranz (dezimal)
 
 # Globale Farben
 val_refcolor = "#00B7FF"
@@ -39,10 +58,22 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
+        # ===========================
+        # Custom Titlebar aktivieren
+        # (damit "Hilfe" oben neben visCell sitzt)
+        # ===========================
+        self.overrideredirect(True)
+
+        # Drag-Variablen (Fenster bewegen)
+        self._drag_x = 0
+        self._drag_y = 0
+        self._win_x = 0
+        self._win_y = 0
+
         # ===== Fenster Einstellungen =====
         self.title("visCell")
-        self.geometry("1440x980")
-        self.minsize(1100, 750)
+        self.geometry("1300x810")
+        self.minsize(1200, 790)
 
         # ===== Validierung: Grundwerte Zellen =====
         self.soll_ery = 0
@@ -57,7 +88,8 @@ class App(ctk.CTk):
         self.stain_var = ctk.StringVar(value="Kein Färbemittel")  # Drop-Down
 
         # ===== KI: Pfade =====
-        self.project_root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[2]))
+        self.project_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+        self.report_template_path = (self.project_root / "docs" / "report_template.json")
         self.model_path_stained = (self.project_root / "runs" / "viscell_unet_512_cpu_stained" / "model_best.keras")
         self.model_path_unstained = (self.project_root / "runs" / "viscell_unet_512_cpu_unstained" / "model_best.keras")
         self.validation_ref_image = (self.project_root / "data" / "ref" / "ref_113_2_0.png")
@@ -66,18 +98,14 @@ class App(ctk.CTk):
         self.cap = None
         self.is_streaming = False
         self.current_cam_index = None
-        self.last_frame = None                 # immer das "zu exportierende" Bild (BGR)
+        self.last_frame = None  # immer das "zu exportierende" Bild (BGR)
         self.current_image_path = None
 
         # ===== Bildanpassung (Helligkeit / Kontrast / Sättigung) =====
-        self.base_frame = None                 # "Original" (BGR) für aktuelle Anzeigequelle
-        self.contrast_alpha = 1.0              # Kontrastfaktor
-        self.brightness_beta = 0.0             # Helligkeitsoffset
-        self.saturation_factor = 1.0           # Sättigungsfaktor (1.0 = neutral)
-
-        # ===== OPTION B: Display-Zielgröße locken (nur Resize-Event ändert sie) =====
-        self._disp_w = 1280
-        self._disp_h = 720
+        self.base_frame = None  # "Original" (BGR) für aktuelle Anzeigequelle
+        self.contrast_alpha = 1.0  # Kontrastfaktor
+        self.brightness_beta = 0.0  # Helligkeitsoffset
+        self.saturation_factor = 1.0  # Sättigungsfaktor (1.0 = neutral)
 
         # Slider-Referenzen
         self.saturation_slider = None
@@ -107,7 +135,6 @@ class App(ctk.CTk):
         os.makedirs(self.capture_dir, exist_ok=True)
 
         # ===== GUI Widget Referenzen =====
-        self.main_frame = None   # wichtig für Letterbox-Farbe
         self.live_view = None
         self.video_container = None
         self.video_label = None
@@ -139,7 +166,7 @@ class App(ctk.CTk):
             "Notizen": "",
         }
 
-        # Fenster-Schließen abfangen
+        # Fenster-Schließen abfangen (bei overrideredirect nutzt du aber unseren ✕-Button)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # ===== GUI bauen =====
@@ -155,16 +182,66 @@ class App(ctk.CTk):
         # Initial Button-Status setzen
         self._update_capture_button_state()
 
-        # Zielgröße nach erstem Layout aus dem Label holen
-        self.after(0, self._init_display_size_from_label)
+        # Wenn minimiert (iconify) und wieder geöffnet (deiconify),
+        # kann overrideredirect manchmal verloren gehen -> sicherstellen:
+        self.bind("<Map>", lambda e: self.after(0, lambda: self.overrideredirect(True)))
 
-    def _init_display_size_from_label(self):
-        if self.video_label is None:
+    # ==========================================================
+    # Custom Titlebar: "Hilfe" (PDF öffnen) + Fenster-Buttons
+    # ==========================================================
+    def _open_help_pdf(self):
+        pdf_path = filedialog.askopenfilename(
+            title="Hilfe (PDF) öffnen",
+            filetypes=[("PDF", "*.pdf")],
+        )
+        if not pdf_path:
+            self._set_status("Hilfe öffnen abgebrochen")
             return
-        w = self.video_label.winfo_width()
-        h = self.video_label.winfo_height()
-        if w > 50 and h > 50:
-            self._disp_w, self._disp_h = w, h
+
+        try:
+            # Windows
+            if sys.platform.startswith("win"):
+                os.startfile(pdf_path)
+            # macOS
+            elif sys.platform == "darwin":
+                import subprocess
+                subprocess.Popen(["open", pdf_path])
+            # Linux
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", pdf_path])
+
+            self._set_status(f"Hilfe geöffnet: {os.path.basename(pdf_path)}")
+        except Exception as e:
+            messagebox.showerror("Hilfe", f"PDF konnte nicht geöffnet werden:\n{e}")
+            self._set_status("Hilfe öffnen fehlgeschlagen")
+
+    def _start_move(self, event):
+        self._drag_x = event.x_root
+        self._drag_y = event.y_root
+        self._win_x = self.winfo_x()
+        self._win_y = self.winfo_y()
+
+    def _do_move(self, event):
+        dx = event.x_root - self._drag_x
+        dy = event.y_root - self._drag_y
+        self.geometry(f"+{self._win_x + dx}+{self._win_y + dy}")
+
+    def _minimize(self):
+        self.iconify()
+
+    def _toggle_maximize(self):
+        try:
+            if self.state() == "zoomed":
+                self.state("normal")
+            else:
+                self.state("zoomed")
+        except Exception:
+            # Fallback (nicht auf allen Plattformen verfügbar)
+            try:
+                self.attributes("-zoomed", not bool(self.attributes("-zoomed")))
+            except Exception:
+                pass
 
     # =========================
     # Helper: Analyse-Text aus self.metadata bauen
@@ -382,42 +459,59 @@ class App(ctk.CTk):
         self._set_live_background(self.placeholder_bg)
         self._update_capture_button_state()
 
-    # =========================
-    # Reset Button: Sättigung/Kontrast/Helligkeit zurück auf 50/50/50
-    # =========================
-    def _reset_adjustments(self):
-        if self.saturation_slider is not None:
-            self.saturation_slider.set(50)
-        if self.contrast_slider is not None:
-            self.contrast_slider.set(50)
-        if self.brightness_slider is not None:
-            self.brightness_slider.set(50)
+    # ===== Resize helper: FILL =====
+    def _resize_fill(self, rgb, target_w, target_h):
+        h, w = rgb.shape[:2]
+        if w <= 0 or h <= 0:
+            return rgb
 
-        self._on_adjust_changed()
-        self._set_status("Bildparameter zurückgesetzt (50/50/50)")
+        scale = max(target_w / w, target_h / h)
+        new_w = max(1, int(w * scale))
+        new_h = max(1, int(h * scale))
 
-    # =========================
-    # Letterbox-Farbe: exakt App/GUI-Hintergrund (main_frame) in Light/Dark
-    # =========================
+        resized = cv2.resize(rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+        x0 = (new_w - target_w) // 2
+        y0 = (new_h - target_h) // 2
+        return resized[y0: y0 + target_h, x0: x0 + target_w]
+
+    # ===== Helper: RGB Bild im Panel anzeigen =====
     def _resolve_ctk_color(self, color):
+        """customtkinter-Farbtuples sind i.d.R. (light, dark)."""
         if isinstance(color, (tuple, list)) and len(color) >= 2:
             mode = ctk.get_appearance_mode()  # "Dark" oder "Light"
             return color[1] if mode == "Dark" else color[0]
         return color
 
     def _get_gui_bg_rgb(self):
+        """Balkenfarbe für Letterbox: möglichst passend zur aktuellen GUI."""
         try:
-            src = self.main_frame if self.main_frame is not None else self
-            c = self._resolve_ctk_color(src.cget("fg_color"))
+            src = None
+            if getattr(self, "video_container", None) is not None:
+                src = self.video_container
+            elif getattr(self, "video_label", None) is not None:
+                src = self.video_label
+            else:
+                src = self
+
+            # tk.Frame hat kein fg_color -> kann knallen, dann fallback
+            c = None
+            if hasattr(src, "cget"):
+                try:
+                    c = self._resolve_ctk_color(src.cget("fg_color"))
+                except Exception:
+                    c = None
+            if not c:
+                # Fallback: dunkles/helles Grau je nach Mode
+                c = "#1f1f1f" if ctk.get_appearance_mode() == "Dark" else "#e6e6e6"
+
             r16, g16, b16 = self.winfo_rgb(c)
             return (r16 // 256, g16 // 256, b16 // 256)
         except Exception:
             return (0, 0, 0)
 
-    # =========================
-    # Resize helper: FIT (Letterbox, kein Crop)
-    # =========================
     def _resize_fit_letterbox(self, rgb, target_w, target_h, bg=(0, 0, 0)):
+        """Skaliert mit Aspect-Ratio, ohne Cropping. Rest wird mit bg aufgefüllt (Letterbox)."""
         h, w = rgb.shape[:2]
         if w <= 0 or h <= 0 or target_w <= 0 or target_h <= 0:
             return rgb
@@ -428,15 +522,14 @@ class App(ctk.CTk):
 
         resized = cv2.resize(rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-        canvas = np.zeros((target_h, target_w, 3), dtype=np.uint8)
-        canvas[:] = bg
+        canvas_img = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+        canvas_img[:] = bg
 
         x0 = (target_w - new_w) // 2
         y0 = (target_h - new_h) // 2
-        canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
-        return canvas
+        canvas_img[y0:y0 + new_h, x0:x0 + new_w] = resized
+        return canvas_img
 
-    # ===== Helper: RGB Bild im Panel anzeigen =====
     def _display_rgb_in_video_label(self, rgb: np.ndarray):
         if self.video_label is None:
             return
@@ -444,31 +537,22 @@ class App(ctk.CTk):
         self._set_live_background(self.live_bg)
         self._hide_overlay_text()
 
-        target_w = int(self._disp_w)
-        target_h = int(self._disp_h)
+        self.video_label.update_idletasks()
+        target_w = self.video_label.winfo_width()
+        target_h = self.video_label.winfo_height()
+
         if target_w <= 50 or target_h <= 50:
             target_w, target_h = 1280, 720
 
-        bg_rgb = self._get_gui_bg_rgb()
-        rgb = self._resize_fit_letterbox(rgb, target_w, target_h, bg=bg_rgb)
+        rgb = self._resize_fit_letterbox(rgb, target_w, target_h, bg=self._get_gui_bg_rgb())
 
         pil_img = Image.fromarray(rgb)
         self._tk_img = ImageTk.PhotoImage(pil_img)
         self.video_label.configure(image=self._tk_img)
         self.video_label.image = self._tk_img
 
-    # =========================
-    # Auto-Resize beim Fensterziehen (importiertes/freeze Bild mitskalieren)
-    # =========================
     def _on_video_resize(self, event=None):
-        if self.video_label is None:
-            return
-
-        w = self.video_label.winfo_width()
-        h = self.video_label.winfo_height()
-        if w > 50 and h > 50:
-            self._disp_w, self._disp_h = w, h
-
+        """Wird beim Resize des Video-Labels/Containers aufgerufen -> Bild neu rendern (debounced)."""
         if self._in_resize_redraw:
             return
 
@@ -483,7 +567,9 @@ class App(ctk.CTk):
 
     def _redraw_current_image_to_fit(self):
         self._resize_after_id = None
-        if self.video_label is None or self.last_frame is None:
+        if self.video_label is None:
+            return
+        if self.last_frame is None:
             return
 
         try:
@@ -512,6 +598,7 @@ class App(ctk.CTk):
 
     # =========================
     # Bildanpassung: Kontrast/Helligkeit (LAB L-Kanal)
+    # + danach Sättigung (HSV)
     # =========================
     def _apply_brightness_contrast(self, bgr: np.ndarray, alpha: float, beta: float) -> np.ndarray:
         if bgr is None:
@@ -531,6 +618,12 @@ class App(ctk.CTk):
     def _apply_all_adjustments(self, bgr: np.ndarray) -> np.ndarray:
         if bgr is None:
             return None
+
+        # keine Änderung
+        if (abs(float(self.contrast_alpha) - 1.0) < 1e-9 and
+                abs(float(self.brightness_beta) - 0.0) < 1e-9 and
+                abs(float(self.saturation_factor) - 1.0) < 1e-9):
+            return bgr
 
         adjusted = self._apply_brightness_contrast(
             bgr,
@@ -620,7 +713,6 @@ class App(ctk.CTk):
             ret, frame = self.cap.read()
             if ret and frame is not None:
                 frame = cv2.flip(frame, 1)
-
                 self.current_image_path = None
                 self.base_frame = frame.copy()
 
@@ -629,14 +721,16 @@ class App(ctk.CTk):
 
                 rgb = cv2.cvtColor(adjusted, cv2.COLOR_BGR2RGB)
 
-                target_w = int(self._disp_w)
-                target_h = int(self._disp_h)
-                if target_w <= 50 or target_h <= 50:
-                    target_w, target_h = 1280, 720
+                self.video_label.update_idletasks()
+                target_w = self.video_label.winfo_width()
+                target_h = self.video_label.winfo_height()
 
-                bg_rgb = self._get_gui_bg_rgb()
-                rgb = self._resize_fit_letterbox(rgb, target_w, target_h, bg=bg_rgb)
-                pil_img = Image.fromarray(rgb)
+                if target_w > 50 and target_h > 50:
+                    rgb = self._resize_fill(rgb, target_w, target_h)
+                    pil_img = Image.fromarray(rgb)
+                    pil_img = pil_img.resize((target_w, target_h), Image.Resampling.BILINEAR)
+                else:
+                    pil_img = Image.fromarray(rgb)
 
                 self._tk_img = ImageTk.PhotoImage(pil_img)
                 self.video_label.configure(image=self._tk_img)
@@ -683,6 +777,7 @@ class App(ctk.CTk):
 
                 self.base_frame = bgr.copy()
                 self._recompute_and_show_current()
+
                 self._set_status(f"Gespeichert & geöffnet (Freeze): {path}")
 
             except Exception as e:
@@ -825,18 +920,18 @@ class App(ctk.CTk):
                 self._update_progress(2, 3)
             except Exception:
                 pass
-
             stain = self.stain_var.get()
             mode = "unstained" if stain == "Kein Färbemittel" else "stained"
             model_path = self.model_path_unstained if mode == "unstained" else self.model_path_stained
             if not model_path.exists():
                 raise FileNotFoundError(f"Model nicht gefunden: {model_path}")
 
-            tmp_dir = Path(self.capture_dir)
-            tmp_dir.mkdir(parents=True, exist_ok=True)
-            tmp_path = tmp_dir / "_tmp_analysis.png"
-            import cv2 as _cv2
-            _cv2.imwrite(str(tmp_path), self.last_frame)
+            # Bild so analysieren, wie es im GUI angezeigt wird:
+            image_bgr = self._apply_all_adjustments(self.last_frame)
+            if image_bgr is None:
+                image_bgr = self.last_frame
+            if image_bgr is None:
+                raise ValueError("Kein Bild geladen (last_frame ist None)")
 
             ai_src = (self.project_root / "src" / "ai").resolve()
             if str(ai_src) not in sys.path:
@@ -844,31 +939,30 @@ class App(ctk.CTk):
 
             import numpy as _np
             import infer_count as infermod
+            print("[GUI] Analyse infermod file:", infermod.__file__)
 
             class_weights = _np.array([1.0, 0.0, 1.2], dtype=_np.float32)
 
-            counts = infermod.infer_and_count(
+            counts = infermod.infer_and_count_array(
                 model_path=Path(model_path),
-                image_path=Path(tmp_path),
+                image_bgr=image_bgr,
                 spec=infermod.TileSpec(tile=512, overlap=64),
-                quantile=0.9943,
-                abs_thresh=0.0,
+                quantile=0.9960,
+                abs_thresh=0.03,
                 max_fg=0.01,
-                detect_dist=6,
-                merge_dist=14,
+                detect_dist=10,
+                merge_dist=18,
                 max_area=120,
                 peak_rel=1.0,
                 class_weights=class_weights,
-                class_margin=0.02,
+                class_margin=0.001,  # 0.02
                 ambiguous_policy="ery",
-                leuko_min_abs=0.06,
+                leuko_min_abs=0.02,  # 0.06
                 leuko_min_rel=0.55,
                 hefe_min_abs=0.08,
                 hefe_min_rel=0.60,
                 leuko_margin_over_ery=0.015,
                 leuko_ratio=0.0,
-                leuko_gate_abs=0.16,
-                leuko_gate_ratio=0.68,
                 debug=False,
             )
 
@@ -885,13 +979,116 @@ class App(ctk.CTk):
                 pass
 
         except Exception as e:
+            err_msg = f"Analyse fehlgeschlagen:\n{e}"
             self.after(0, lambda: self._set_status("Analyse fehlgeschlagen ❌"))
-            err = str(e)
-            self.after(0, lambda err=err: messagebox.showerror("Analyse", f"Analyse fehlgeschlagen:\n{err}"))
+            self.after(0, lambda msg=err_msg: messagebox.showerror("Analyse", msg))
+
         finally:
             self._analysis_running = False
             if self.btn_analyze is not None:
                 self.after(0, lambda: self.btn_analyze.configure(state="normal"))
+
+    # =========================
+    # Bericht exportieren
+    # =========================
+    def _export_report(self):
+        if self.last_frame is None:
+            self._set_status("Kein Bild vorhanden – erst Kamera/Bild importieren")
+            return
+
+        if not self.report_template_path.exists():
+            messagebox.showerror("Bericht", f"Template nicht gefunden:\n{self.report_template_path}")
+            return
+
+        try:
+            with open(self.report_template_path, "r", encoding="utf-8") as f:
+                template = json.load(f)
+        except Exception as e:
+            messagebox.showerror("Bericht", f"Template kann nicht gelesen werden:\n{e}")
+            return
+
+        m = self.metadata.copy()
+        data = {
+            **m,
+            "ki_ery": int(getattr(self, "ki_ery", 0)),
+            "ki_leuko": int(getattr(self, "ki_leuko", 0)),
+            "ki_hefe": int(getattr(self, "ki_hefe", 0)),
+            "stain": self.stain_var.get(),
+        }
+
+        ts = datetime.now().strftime("%d%m%Y_%H%M%S")
+        default_name = f"visCell_report_{ts}.pdf"
+        save_path = filedialog.asksaveasfilename(
+            title="Bericht als PDF speichern",
+            initialdir=os.path.abspath(self.capture_dir),
+            initialfile=default_name,
+            defaultextension=".pdf",
+            filetypes=[("PDF", "*.pdf")],
+        )
+        if not save_path:
+            self._set_status("Bericht-Export abgebrochen")
+            return
+
+        try:
+            c = canvas.Canvas(save_path, pagesize=A4)
+            page_w, page_h = A4
+
+            x = 20 * mm
+            y = page_h - 20 * mm
+
+            title = template.get("title", "Analysebericht")
+            c.setFont("Helvetica-Bold", 16)
+            c.drawString(x, y, title)
+            y -= 12 * mm
+
+            c.setFont("Helvetica", 11)
+
+            def render_line(line: str) -> str:
+                out = line
+                for k, v in data.items():
+                    out = out.replace("{{" + str(k) + "}}", str(v))
+                return out
+
+            sections = template.get("sections", [])
+            for sec in sections:
+                heading = sec.get("heading", "")
+                lines = sec.get("lines", [])
+
+                if heading:
+                    c.setFont("Helvetica-Bold", 12)
+                    c.drawString(x, y, heading)
+                    y -= 7 * mm
+                    c.setFont("Helvetica", 11)
+
+                for line in lines:
+                    txt = render_line(str(line))
+
+                    if y < 20 * mm:
+                        c.showPage()
+                        c.setFont("Helvetica", 11)
+                        y = page_h - 20 * mm
+
+                    max_chars = 95
+                    while len(txt) > max_chars:
+                        c.drawString(x, y, txt[:max_chars])
+                        txt = txt[max_chars:]
+                        y -= 5 * mm
+                        if y < 20 * mm:
+                            c.showPage()
+                            c.setFont("Helvetica", 11)
+                            y = page_h - 20 * mm
+
+                    c.drawString(x, y, txt)
+                    y -= 5 * mm
+
+                y -= 4 * mm
+
+            c.save()
+            self._set_status(f"Bericht exportiert: {save_path}")
+
+        except Exception as e:
+            messagebox.showerror("Bericht", f"PDF konnte nicht erstellt werden:\n{e}")
+            self._set_status("Bericht-Export fehlgeschlagen")
 
     # =========================
     # 10 ) Metadaten Popup
@@ -983,6 +1180,7 @@ class App(ctk.CTk):
 
         import numpy as _np
         import infer_count as infermod
+        print("[GUI] Validierung infermod file:", infermod.__file__)
 
         model_path = self.model_path_stained
         if not model_path.exists():
@@ -990,27 +1188,35 @@ class App(ctk.CTk):
         if not self.validation_ref_image.exists():
             raise FileNotFoundError(f"Referenzbild nicht gefunden: {self.validation_ref_image}")
 
+        pil_img = Image.open(self.validation_ref_image).convert("RGB")
+        rgb = np.array(pil_img)
+        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        image_bgr = self._apply_all_adjustments(bgr)
+        if image_bgr is None:
+            image_bgr = bgr
+
         class_weights = _np.array([1.0, 0.0, 1.2], dtype=_np.float32)
 
-        counts = infermod.infer_and_count(
+        counts = infermod.infer_and_count_array(
             model_path=Path(model_path),
-            image_path=Path(self.validation_ref_image),
+            image_bgr=image_bgr,
             spec=infermod.TileSpec(tile=512, overlap=64),
-            quantile=0.9943,
-            abs_thresh=0.0,
+            quantile=0.9960,
+            abs_thresh=0.03,
             max_fg=0.01,
-            detect_dist=6,
-            merge_dist=14,
+            detect_dist=10,
+            merge_dist=18,
             max_area=120,
             peak_rel=1.0,
             class_weights=class_weights,
-            class_margin=0.02,
+            class_margin=0.001,
             ambiguous_policy="ery",
-            leuko_min_abs=0.06,
+            leuko_min_abs=0.02,
             leuko_min_rel=0.55,
             hefe_min_abs=0.08,
             hefe_min_rel=0.60,
             leuko_margin_over_ery=0.015,
+            leuko_ratio=0.0,
             debug=False,
         )
 
@@ -1039,6 +1245,8 @@ class App(ctk.CTk):
         toleranz = max(1, round(soll * deltatol))
         untergrenze = soll - toleranz
         obergrenze = soll + toleranz
+        self.delta_ery = soll - ist
+        self.delta_ery_prozent = round(int(100) / soll * self.delta_ery, 2)
 
         ok = untergrenze <= ist <= obergrenze
         return ok, toleranz
@@ -1047,17 +1255,17 @@ class App(ctk.CTk):
         if self.validierung_ok:
             text = (
                 f"Validierung erfolgreich.\n\n"
-                f"Referenzwert Erythrozyten: {soll}  Leukozyten: {int(self.soll_leuko)}  Hefe: {int(self.soll_hefe)}\n"
-                f"Istwert Erythrozyten: {ist}  Leukozyten: {int(self.ki_leuko)}  Hefe: {int(self.ki_hefe)}\n"
-                f"Toleranz (Ery): ±{tol} Zellen (±{deltatol*100:.0f}%)\n\n"
+                f"Sollwert Erythrozyten: {soll}  Leukozyten: {int(self.soll_leuko)}  Hefe: {int(self.soll_hefe)}\n"
+                f"Istwert   Erythrozyten: {ist}  Leukozyten: {int(self.ki_leuko)}  Hefe: {int(self.ki_hefe)}\n\n"
+                f"Toleranz: ±{self.delta_ery} Zellen ±({self.delta_ery_prozent}% / {deltatol*100:.2f}%)\n\n"
                 f"Bestätigen Sie die Validierung?"
             )
         else:
             text = (
                 f"Validierung nicht erfolgreich.\n\n"
-                f"Referenzwert Erythrozyten: {soll}  Leukozyten: {int(self.soll_leuko)}  Hefe: {int(self.soll_hefe)}\n"
-                f"Istwert Erythrozyten: {ist}  Leukozyten: {int(self.ki_leuko)}  Hefe: {int(self.ki_hefe)}\n"
-                f"Toleranz (Ery): ±{tol} Zellen (±{deltatol*100:.0f}%)\n\n"
+                f"Sollwert Erythrozyten: {soll}  Leukozyten: {int(self.soll_leuko)}  Hefe: {int(self.soll_hefe)}\n"
+                f"Istwert   Erythrozyten: {ist}  Leukozyten: {int(self.ki_leuko)}  Hefe: {int(self.ki_hefe)}\n\n"
+                f"Toleranz: ±{self.delta_ery} Zellen ±({self.delta_ery_prozent}% / {deltatol*100:.2f}%)\n\n"
                 f"Trotzdem als erfolgreich bestätigen?"
             )
 
@@ -1103,9 +1311,71 @@ class App(ctk.CTk):
     # 12 ) GUI bauen
     # =========================
     def _build_gui(self):
+        # ==========================================================
+        # Custom Titlebar (oben)
+        # - "Hilfe" rechts neben visCell (ohne blauen Hintergrund)
+        # - Fensterbuttons rechts (nicht blau)
+        # ==========================================================
+        titlebar = ctk.CTkFrame(self, height=34, corner_radius=0, fg_color=("gray90", "#1f1f1f"))
+        titlebar.pack(fill="x", side="top")
+
+        # Fenster bewegen per Drag
+        titlebar.bind("<Button-1>", self._start_move)
+        titlebar.bind("<B1-Motion>", self._do_move)
+
+        left = ctk.CTkFrame(titlebar, fg_color="transparent")
+        left.pack(side="left", padx=10)
+
+        app_title = ctk.CTkLabel(left, text="visCell", font=ctk.CTkFont(size=14, weight="bold"))
+        app_title.pack(side="left")
+
+        # Hilfe als Text-only (transparent)
+        btn_help = ctk.CTkButton(
+            left,
+            text="Hilfe",
+            width=60,
+            height=24,
+            command=self._open_help_pdf,
+            fg_color="transparent",
+            hover_color=("gray80", "#2a2a2a"),
+            text_color=("black", "white"),
+            corner_radius=6,
+            border_width=0,
+        )
+        btn_help.pack(side="left", padx=(10, 0))
+
+        # Drag auch auf linkem Bereich/Label (damit man überall ziehen kann)
+        left.bind("<Button-1>", self._start_move)
+        left.bind("<B1-Motion>", self._do_move)
+        app_title.bind("<Button-1>", self._start_move)
+        app_title.bind("<B1-Motion>", self._do_move)
+
+        right = ctk.CTkFrame(titlebar, fg_color="transparent")
+        right.pack(side="right", padx=6)
+
+        def window_button(parent, text, command, hover=("gray80", "#2a2a2a")):
+            return ctk.CTkButton(
+                parent,
+                text=text,
+                width=42,
+                height=24,
+                command=command,
+                fg_color="transparent",
+                hover_color=hover,
+                text_color=("black", "white"),
+                corner_radius=6,
+                border_width=0,
+            )
+
+        window_button(right, "—", self._minimize).pack(side="left", padx=4)
+        window_button(right, "☐", self._toggle_maximize).pack(side="left", padx=4)
+        window_button(right, "✕", self._on_close, hover=("#ff4d4d", "#b00020")).pack(side="left", padx=4)
+
+        # ==========================================================
+        # Haupt-GUI (wie vorher)
+        # ==========================================================
         main_frame = ctk.CTkFrame(self)
-        self.main_frame = main_frame  # <<< WICHTIG: für Letterbox-Farbe
-        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=(10, 10))
 
         main_frame.grid_columnconfigure(0, weight=6)
         main_frame.grid_columnconfigure(1, weight=0, minsize=360)
@@ -1212,7 +1482,7 @@ class App(ctk.CTk):
             command=lambda: self._open_metadata_popup(analysis_label),
         ).pack(side="left", pady=10)
 
-        ctk.CTkButton(export_frame, text="Bericht exportieren").pack(side="left", padx=10, pady=10)
+        ctk.CTkButton(export_frame, text="Bericht exportieren", command=self._export_report).pack(side="left", padx=10, pady=10)
 
         slider_frame = ctk.CTkFrame(right_panel)
         slider_frame.pack(fill="x", padx=10, pady=10)
@@ -1279,11 +1549,7 @@ class App(ctk.CTk):
         self.btn_validate = ctk.CTkButton(button_row, text="Validieren", command=self.start_validation, width=80)
         self.btn_validate.pack(side="left", padx=5, pady=(10, 6))
 
-        # AutoAdjust + Reset NEBENEINANDER (Reset rechts neben AutoAdjust)
-        ctk.CTkButton(button_row, text="AutoAdjust", command=self._auto_adjust, width=80)\
-            .pack(side="left", padx=5, pady=(10, 6))
-
-        ctk.CTkButton(button_row, text="Reset", command=self._reset_adjustments, width=80)\
+        ctk.CTkButton(button_row, text="AutoAdjust", command=self._auto_adjust, width=80) \
             .pack(side="left", padx=5, pady=(10, 6))
 
         self.status_label = ctk.CTkLabel(function_frame, text="Bereit", text_color="#00B7FF")
@@ -1293,8 +1559,7 @@ class App(ctk.CTk):
         self.progress_frame.pack(pady=6)
         self.progress_frame.pack_forget()
 
-        self.progress = ctk.CTkCTkProgressBar(self.progress_frame, width=300, height=16) if hasattr(ctk, "CTkCTkProgressBar") else ctk.CTkProgressBar(self.progress_frame, width=300, height=16)
-        # ^ fallback, falls deine customtkinter-Version anders ist
+        self.progress = ctk.CTkProgressBar(self.progress_frame, width=300, height=16)
         self.progress.pack(pady=6)
         self.progress.set(0)
 
