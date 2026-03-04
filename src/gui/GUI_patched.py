@@ -27,6 +27,10 @@ from datetime import datetime
 from PIL import Image, ImageTk
 import sys
 from pathlib import Path
+import json
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
 
 # ============================
 #  2 ) Globale Einstellungen
@@ -36,7 +40,7 @@ colormode = ("Hellmodus")
 ctk.set_appearance_mode(appearance)
 ctk.set_default_color_theme("blue")
 
-deltatol = 0.10  # Validation: Toleranz (dezimal)
+deltatol = 0.1  # Validation: Toleranz (dezimal)
 
 # Globale Farben
 val_refcolor = "#00B7FF"
@@ -54,8 +58,8 @@ class App(ctk.CTk):
 
         # ===== Fenster Einstellungen =====
         self.title("visCell")
-        self.geometry("1200x600")
-        self.minsize(900, 750)
+        self.geometry("1300x810")
+        self.minsize(1200, 790)
 
         # ===== Validierung: Grundwerte Zellen =====
         self.soll_ery = 0
@@ -71,6 +75,7 @@ class App(ctk.CTk):
 
         # ===== KI: Pfade =====
         self.project_root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[2]))
+        self.report_template_path = (self.project_root / "docs" / "report_template.json")
         self.model_path_stained = (self.project_root / "runs" / "viscell_unet_512_cpu_stained" / "model_best.keras")
         self.model_path_unstained = (self.project_root / "runs" / "viscell_unet_512_cpu_unstained" / "model_best.keras")
         self.validation_ref_image = (self.project_root / "data" / "ref" / "ref_113_2_0.png")
@@ -258,6 +263,7 @@ class App(ctk.CTk):
     # =========================
     # 5 ) Footer
     # =========================
+        self._redraw_current_image_to_fit()
     def _build_footer(self):
         footer = ctk.CTkFrame(self, height=30)
         footer.pack(fill="x", side="bottom")
@@ -393,6 +399,178 @@ class App(ctk.CTk):
         return resized[y0: y0 + target_h, x0: x0 + target_w]
 
     # ===== Helper: RGB Bild im Panel anzeigen =====
+
+    def _resolve_ctk_color(self, color):
+        """
+        customtkinter-Farbtuples sind i.d.R. (light, dark).
+        """
+        if isinstance(color, (tuple, list)) and len(color) >= 2:
+            mode = ctk.get_appearance_mode()  # "Dark" oder "Light"
+            return color[1] if mode == "Dark" else color[0]
+        return color
+
+
+    def _get_gui_bg_rgb(self):
+        """Balkenfarbe für Letterbox: möglichst passend zur aktuellen GUI."""
+        try:
+            src = None
+            if getattr(self, "video_container", None) is not None:
+                src = self.video_container
+            elif getattr(self, "video_label", None) is not None:
+                src = self.video_label
+            else:
+                src = self
+
+            c = self._resolve_ctk_color(src.cget("fg_color"))
+            r16, g16, b16 = self.winfo_rgb(c)
+            return (r16 // 256, g16 // 256, b16 // 256)
+        except Exception:
+            return (0, 0, 0)
+
+    def _resize_fit_letterbox(self, rgb, target_w, target_h, bg=(0, 0, 0)):
+        """Skaliert mit Aspect-Ratio, ohne Cropping. Rest wird mit bg aufgefüllt (Letterbox)."""
+        h, w = rgb.shape[:2]
+        if w <= 0 or h <= 0 or target_w <= 0 or target_h <= 0:
+            return rgb
+
+        scale = min(target_w / w, target_h / h)
+        new_w = max(1, int(w * scale))
+        new_h = max(1, int(h * scale))
+
+        resized = cv2.resize(rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+        canvas = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+        canvas[:] = bg
+
+        x0 = (target_w - new_w) // 2
+        y0 = (target_h - new_h) // 2
+        canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
+        return canvas
+
+    # ===== Helper: RGB Bild im Panel anzeigen =====
+
+    def _init_display_size_from_label(self):
+        if self.video_label is None:
+            return
+        w = self.video_label.winfo_width()
+        h = self.video_label.winfo_height()
+        if w > 50 and h > 50:
+            self._disp_w, self._disp_h = w, h
+
+    # =========================
+    # Helper: Analyse-Text aus self.metadata bauen
+    # =========================
+
+    def _export_report(self):
+        if self.last_frame is None:
+            self._set_status("Kein Bild vorhanden – erst Kamera/Bild importieren")
+            return
+
+        # Template laden
+        if not self.report_template_path.exists():
+            messagebox.showerror("Bericht", f"Template nicht gefunden:\n{self.report_template_path}")
+            return
+
+        try:
+            with open(self.report_template_path, "r", encoding="utf-8") as f:
+                template = json.load(f)
+        except Exception as e:
+            messagebox.showerror("Bericht", f"Template kann nicht gelesen werden:\n{e}")
+            return
+
+        # Platzhalter-Daten sammeln
+        m = self.metadata.copy()
+        data = {
+            **m,
+            "ki_ery": int(getattr(self, "ki_ery", 0)),
+            "ki_leuko": int(getattr(self, "ki_leuko", 0)),
+            "ki_hefe": int(getattr(self, "ki_hefe", 0)),
+            "stain": self.stain_var.get(),
+        }
+
+        # Speicherort wählen
+        ts = datetime.now().strftime("%d%m%Y_%H%M%S")
+        default_name = f"visCell_report_{ts}.pdf"
+        save_path = filedialog.asksaveasfilename(
+            title="Bericht als PDF speichern",
+            initialdir=os.path.abspath(self.capture_dir),
+            initialfile=default_name,
+            defaultextension=".pdf",
+            filetypes=[("PDF", "*.pdf")],
+        )
+        if not save_path:
+            self._set_status("Bericht-Export abgebrochen")
+            return
+
+        # PDF erzeugen (simple, aber robust)
+        try:
+            c = canvas.Canvas(save_path, pagesize=A4)
+            page_w, page_h = A4
+
+            x = 20 * mm
+            y = page_h - 20 * mm
+
+            title = template.get("title", "Analysebericht")
+            c.setFont("Helvetica-Bold", 16)
+            c.drawString(x, y, title)
+            y -= 12 * mm
+
+            c.setFont("Helvetica", 11)
+
+            def render_line(line: str) -> str:
+                # sehr einfacher Platzhalter-Replace: {{key}}
+                out = line
+                for k, v in data.items():
+                    out = out.replace("{{" + str(k) + "}}", str(v))
+                return out
+
+            sections = template.get("sections", [])
+            for sec in sections:
+                heading = sec.get("heading", "")
+                lines = sec.get("lines", [])
+
+                if heading:
+                    c.setFont("Helvetica-Bold", 12)
+                    c.drawString(x, y, heading)
+                    y -= 7 * mm
+                    c.setFont("Helvetica", 11)
+
+                for line in lines:
+                    txt = render_line(str(line))
+
+                    # Seitenumbruch
+                    if y < 20 * mm:
+                        c.showPage()
+                        c.setFont("Helvetica", 11)
+                        y = page_h - 20 * mm
+
+                    # sehr simples Text-Wrapping (kurz & stabil)
+                    max_chars = 95
+                    while len(txt) > max_chars:
+                        c.drawString(x, y, txt[:max_chars])
+                        txt = txt[max_chars:]
+                        y -= 5 * mm
+                        if y < 20 * mm:
+                            c.showPage()
+                            c.setFont("Helvetica", 11)
+                            y = page_h - 20 * mm
+
+                    c.drawString(x, y, txt)
+                    y -= 5 * mm
+
+                y -= 4 * mm
+
+            c.save()
+            self._set_status(f"Bericht exportiert: {save_path}")
+
+        except Exception as e:
+            messagebox.showerror("Bericht", f"PDF konnte nicht erstellt werden:\n{e}")
+            self._set_status("Bericht-Export fehlgeschlagen")
+
+    # =========================
+    # 10 ) Metadaten Popup
+    # =========================
+
     def _display_rgb_in_video_label(self, rgb: np.ndarray):
         if self.video_label is None:
             return
@@ -400,24 +578,24 @@ class App(ctk.CTk):
         self._set_live_background(self.live_bg)
         self._hide_overlay_text()
 
+        # Zielgröße stabil bestimmen (Label kann beim Start noch 1x1 sein)
         self.video_label.update_idletasks()
         target_w = self.video_label.winfo_width()
         target_h = self.video_label.winfo_height()
 
         if target_w <= 50 or target_h <= 50:
+            # Fallback + später nochmal initialisieren
             target_w, target_h = 1280, 720
+            self.after(0, self._init_display_size_from_label)
 
-        rgb = self._resize_fill(rgb, target_w, target_h)
+        # FIT + Letterbox (kein Crop), Balken in GUI-Hintergrundfarbe
+        rgb = self._resize_fit_letterbox(rgb, target_w, target_h, bg=self._get_gui_bg_rgb())
+
         pil_img = Image.fromarray(rgb)
-        pil_img = pil_img.resize((target_w, target_h), Image.Resampling.BILINEAR)
-
         self._tk_img = ImageTk.PhotoImage(pil_img)
         self.video_label.configure(image=self._tk_img)
         self.video_label.image = self._tk_img
 
-    # =========================
-    # NEU: Auto-Resize beim Fensterziehen (importiertes/freeze Bild mitskalieren)
-    # =========================
     def _on_video_resize(self, event=None):
         """Wird beim Resize des Video-Labels/Containers aufgerufen -> Bild neu rendern (debounced)."""
         if self._in_resize_redraw:
@@ -1028,6 +1206,8 @@ class App(ctk.CTk):
         toleranz = max(1, round(soll * deltatol))
         untergrenze = soll - toleranz
         obergrenze = soll + toleranz
+        self.delta_ery = soll - ist
+        self.delta_ery_prozent = round(int(100)/soll*self.delta_ery, 2)
 
         ok = untergrenze <= ist <= obergrenze
         return ok, toleranz
@@ -1035,18 +1215,18 @@ class App(ctk.CTk):
     def _popup_confirm(self, ist: int, soll: int, tol: int):
         if self.validierung_ok:
             text = (
-                f"Validierung erfolgreich.\n\n"
-                f"Referenzwert Erythrozyten: {soll}  Leukozyten: {int(self.soll_leuko)}  Hefe: {int(self.soll_hefe)}\n"
-                f"Istwert Erythrozyten: {ist}  Leukozyten: {int(self.ki_leuko)}  Hefe: {int(self.ki_hefe)}\n"
-                f"Toleranz (Ery): ±{tol} Zellen (±{deltatol*100:.0f}%)\n\n"
+                f"""Validierung erfolgreich.\n\n"""
+                f"Sollwert Erythrozyten: {soll}  Leukozyten: {int(self.soll_leuko)}  Hefe: {int(self.soll_hefe)}\n"
+                f"Istwert   Erythrozyten: {ist}  Leukozyten: {int(self.ki_leuko)}  Hefe: {int(self.ki_hefe)}\n\n"
+                f"Toleranz: ±{self.delta_ery} Zellen ±({self.delta_ery_prozent}% / {deltatol*100:.2f}%)\n\n"
                 f"Bestätigen Sie die Validierung?"
             )
         else:
             text = (
                 f"Validierung nicht erfolgreich.\n\n"
-                f"Referenzwert Erythrozyten: {soll}  Leukozyten: {int(self.soll_leuko)}  Hefe: {int(self.soll_hefe)}\n"
-                f"Istwert Erythrozyten: {ist}  Leukozyten: {int(self.ki_leuko)}  Hefe: {int(self.ki_hefe)}\n"
-                f"Toleranz (Ery): ±{tol} Zellen (±{deltatol*100:.0f}%)\n\n"
+                f"Sollwert Erythrozyten: {soll}  Leukozyten: {int(self.soll_leuko)}  Hefe: {int(self.soll_hefe)}\n"
+                f"Istwert   Erythrozyten: {ist}  Leukozyten: {int(self.ki_leuko)}  Hefe: {int(self.ki_hefe)}\n\n"
+                f"Toleranz: ±{self.delta_ery} Zellen ±({self.delta_ery_prozent}% / {deltatol*100:.2f}%)\n\n"
                 f"Trotzdem als erfolgreich bestätigen?"
             )
 
@@ -1201,7 +1381,7 @@ class App(ctk.CTk):
             command=lambda: self._open_metadata_popup(analysis_label),
         ).pack(side="left", pady=10)
 
-        ctk.CTkButton(export_frame, text="Bericht exportieren").pack(side="left", padx=10, pady=10)
+        ctk.CTkButton(export_frame, text="Bericht exportieren", command=self._export_report).pack(side="left", padx=10, pady=10)
 
         slider_frame = ctk.CTkFrame(right_panel)
         slider_frame.pack(fill="x", padx=10, pady=10)
