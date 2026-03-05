@@ -127,6 +127,14 @@ class App(ctk.CTk):
         # Dropdown Variable (Kamera Auswahl)
         self.camera_var = ctk.StringVar(value="Kamera auswählen...")
 
+        # Cache der letzten gefundenen Kameras (nur "Camera X" Einträge)
+        self._camera_sources_cache = []
+
+        self._suppress_cam_trace = False
+
+        # Trace-ID speichern, damit wir den Trace kurz deaktivieren können
+        self._camera_trace_id = self.camera_var.trace_add("write", self._camera_var_changed)
+
         # Freeze Checkbox Variable
         self.freeze_after_capture_var = ctk.BooleanVar(value=False)
 
@@ -359,7 +367,37 @@ class App(ctk.CTk):
                     found.append(f"Camera {i}")
             cap.release()
         return found
+    
+    def _camera_var_changed(self, *_):
+        if self._suppress_cam_trace:
+            return
+        choice = self.camera_var.get()
+        self._on_camera_selected(choice)
+    
+    def _on_camera_selected(self, choice: str):
+        if choice.startswith("Camera "):
+            idx = int(choice.split()[-1])
+            if self.current_cam_index == idx and self.cap is not None and self.is_streaming:
+                return  # schon aktiv
+            self._start_camera(idx)
+            return
 
+        # Alles andere NICHT automatisch stoppen (sonst killt Refresh den Feed)
+        # Optional: nur stoppen, wenn User bewusst "Stop" auswählt (extra Menüpunkt)
+        return
+
+    def _on_camera_selected(self, choice: str):
+        # Wenn User die aktuell laufende Kamera erneut anklickt: einfach ignorieren
+        if choice.startswith("Camera "):
+            idx = int(choice.split()[-1])
+            if self.current_cam_index == idx and self.cap is not None and self.is_streaming:
+                return  # NICHT neu starten -> kein Hänger
+            self._start_camera(idx)
+            return
+
+        if choice == "Kamera stoppen":
+            self._stop_camera()
+            self._clear_video_label()
     # =========================
     # 6 ) Kamera Dropdown via trace
     # =========================
@@ -375,6 +413,45 @@ class App(ctk.CTk):
         else:
             self._stop_camera()
             self._clear_video_label()
+
+    def _refresh_camera_dropdown_if_needed(self):
+        """Scannt Kameras und updatet das Dropdown nur, wenn sich etwas geändert hat."""
+        detected = self._detect_cameras(max_index=5)  # liefert z.B. ["Camera 0", "Camera 1"]
+        if detected == self._camera_sources_cache:
+            return  # nichts geändert -> KEIN Stocken, kein Update
+
+        self._camera_sources_cache = detected[:]  # Cache aktualisieren
+
+        # Neue Values bauen
+        camera_values = ["Kamera auswählen..."] + detected
+        if len(detected) == 0:
+            camera_values = ["Kamera auswählen...", "Keine Kamera gefunden"]
+
+        # Aktuelle Auswahl merken
+        current_choice = self.camera_var.get()
+
+        # Dropdown-Values setzen (ändert i.d.R. die Variable NICHT)
+        self.camera_select.configure(values=camera_values)
+
+        # Falls aktuelle Auswahl nicht mehr existiert -> auf Placeholder setzen (ohne Kamera-Neustart)
+        if current_choice not in camera_values:
+            self._set_camera_var_silent("Kamera auswählen...")
+
+    def _set_camera_var_silent(self, value: str):
+        """Setzt camera_var ohne den Trace auszulösen (verhindert unnötigen Kamera-Stop/Start)."""
+        try:
+            self.camera_var.trace_remove("write", self._camera_trace_id)
+        except Exception:
+            pass
+
+        self.camera_var.set(value)
+
+        # Trace wieder aktivieren
+        self._camera_trace_id = self.camera_var.trace_add("write", self._camera_var_changed)
+
+    def _on_camera_dropdown_click(self, event=None):
+        # Genau hier: einmal scan/update – nur beim Öffnen
+        self._refresh_camera_dropdown_if_needed()
 
     # ===== Freeze Toggle =====
     def _on_freeze_toggle(self):
@@ -1407,6 +1484,12 @@ class App(ctk.CTk):
 
         self.camera_select = ctk.CTkOptionMenu(controls_frame, values=camera_values, variable=self.camera_var)
         self.camera_select.grid(row=0, column=0, padx=5)
+
+        # Cache initial befüllen (optional, aber sauber)
+        self._camera_sources_cache = self._detect_cameras(max_index=5)
+
+        # Refresh nur wenn User das Dropdown anklickt/öffnet
+        self.camera_select.bind("<Button-1>", self._on_camera_dropdown_click, add="+")
 
         self.freeze_checkbox = ctk.CTkCheckBox(
             controls_frame,
