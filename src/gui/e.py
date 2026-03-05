@@ -613,6 +613,22 @@ class App(ctk.CTk):
         self._on_adjust_changed()
         self._set_status(f"AutoAdjust: alpha={alpha:.2f}, beta={beta:.1f}")
 
+    def _reset_image_adjustments(self):
+        # Slider auf Neutralwerte setzen
+        if self.saturation_slider is not None:
+            self.saturation_slider.set(50)   # 50% = Faktor 1.0
+
+        if self.contrast_slider is not None:
+            self.contrast_slider.set(50)     # 50% = alpha 1.0
+
+        if self.brightness_slider is not None:
+            self.brightness_slider.set(50)   # 50% = beta 0
+
+        # Werte intern aktualisieren
+        self._on_adjust_changed()
+
+        self._set_status("Bild auf Original zurückgesetzt")
+
     # =========================
     # 7 ) Live Loop
     # =========================
@@ -1392,6 +1408,9 @@ class App(ctk.CTk):
 
         ctk.CTkButton(button_row, text="AutoAdjust", command=self._auto_adjust, width=80)\
             .pack(side="left", padx=5, pady=(10, 6))
+        
+        ctk.CTkButton(button_row,text="Original-Bild", command=self. _reset_image_adjustments,width=90)\
+        .pack(side="left", padx=5, pady=(10,6))
 
         self.status_label = ctk.CTkLabel(function_frame, text="Bereit", text_color="#00B7FF")
         self.status_label.pack(pady=(0, 8))
