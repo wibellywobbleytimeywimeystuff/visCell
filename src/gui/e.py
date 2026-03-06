@@ -34,6 +34,10 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 
+# Windows Taskbar Fix (nur Windows)
+import ctypes
+from ctypes import wintypes
+
 # ============================
 #  2 ) Globale Einstellungen
 # ============================
@@ -58,10 +62,13 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        # ===========================
-        # Custom Titlebar aktivieren
-        # (damit "Hilfe" oben neben visCell sitzt)
-        # ===========================
+        # ===== Fenster Einstellungen =====
+        self.title("visCell")
+        self.geometry("1300x810")
+        self.minsize(1200, 790)
+
+        # ===== Custom Titlebar aktivieren =====
+        # overrideredirect = eigene Titlebar (Fensterbuttons/Drag selbst)
         self.overrideredirect(True)
 
         # Drag-Variablen (Fenster bewegen)
@@ -69,11 +76,6 @@ class App(ctk.CTk):
         self._drag_y = 0
         self._win_x = 0
         self._win_y = 0
-
-        # ===== Fenster Einstellungen =====
-        self.title("visCell")
-        self.geometry("1300x810")
-        self.minsize(1200, 790)
 
         # ===== Validierung: Grundwerte Zellen =====
         self.soll_ery = 0
@@ -174,7 +176,7 @@ class App(ctk.CTk):
             "Notizen": "",
         }
 
-        # Fenster-Schließen abfangen (bei overrideredirect nutzt du aber unseren ✕-Button)
+        # Fenster-Schließen abfangen
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # ===== GUI bauen =====
@@ -190,40 +192,57 @@ class App(ctk.CTk):
         # Initial Button-Status setzen
         self._update_capture_button_state()
 
-        # Wenn minimiert (iconify) und wieder geöffnet (deiconify),
-        # kann overrideredirect manchmal verloren gehen -> sicherstellen:
-        self.bind("<Map>", lambda e: self.after(0, lambda: self.overrideredirect(True)))
+        # ===== Taskleisten-Icon Fix für Windows =====
+        self.after(80, self._ensure_taskbar_icon_windows)
+
+        # Wenn minimiert/wiederhergestellt: Titlebar + Taskbar-Fix erneut setzen
+        self.bind("<Map>", self._on_map_restore)
 
     # ==========================================================
-    # Custom Titlebar: "Hilfe" (PDF öffnen) + Fenster-Buttons
+    # Windows Taskbar Fix für overrideredirect(True)
     # ==========================================================
-    def _open_help_pdf(self):
-        pdf_path = filedialog.askopenfilename(
-            title="Hilfe (PDF) öffnen",
-            filetypes=[("PDF", "*.pdf")],
-        )
-        if not pdf_path:
-            self._set_status("Hilfe öffnen abgebrochen")
+    def _ensure_taskbar_icon_windows(self):
+        """Sorgt dafür, dass das borderless Fenster in der Taskleiste erscheint (Windows)."""
+        if not sys.platform.startswith("win"):
             return
 
         try:
-            # Windows
-            if sys.platform.startswith("win"):
-                os.startfile(pdf_path)
-            # macOS
-            elif sys.platform == "darwin":
-                import subprocess
-                subprocess.Popen(["open", pdf_path])
-            # Linux
-            else:
-                import subprocess
-                subprocess.Popen(["xdg-open", pdf_path])
+            self.update_idletasks()
+            hwnd = wintypes.HWND(self.winfo_id())
 
-            self._set_status(f"Hilfe geöffnet: {os.path.basename(pdf_path)}")
+            GWL_EXSTYLE = -20
+            WS_EX_APPWINDOW = 0x00040000
+            WS_EX_TOOLWINDOW = 0x00000080
+
+            user32 = ctypes.windll.user32
+            get_long = user32.GetWindowLongW
+            set_long = user32.SetWindowLongW
+
+            exstyle = get_long(hwnd, GWL_EXSTYLE)
+
+            # Toolwindow raus, Appwindow rein
+            exstyle = exstyle & ~WS_EX_TOOLWINDOW
+            exstyle = exstyle | WS_EX_APPWINDOW
+
+            set_long(hwnd, GWL_EXSTYLE, exstyle)
+
+            # Stil übernehmen lassen (Refresh)
+            SW_SHOW = 5
+            user32.ShowWindow(hwnd, SW_SHOW)
         except Exception as e:
-            messagebox.showerror("Hilfe", f"PDF konnte nicht geöffnet werden:\n{e}")
-            self._set_status("Hilfe öffnen fehlgeschlagen")
+            print("Taskbar-Fix fehlgeschlagen:", e)
 
+    def _on_map_restore(self, event=None):
+        # Nach Restore wieder Custom-Titlebar aktivieren und Taskbar-Fix setzen
+        try:
+            self.after(0, lambda: self.overrideredirect(True))
+            self.after(30, self._ensure_taskbar_icon_windows)
+        except Exception:
+            pass
+
+    # ==========================================================
+    # Custom Titlebar: Drag + Fensterbuttons + Hilfe(PDF)
+    # ==========================================================
     def _start_move(self, event):
         self._drag_x = event.x_root
         self._drag_y = event.y_root
@@ -236,7 +255,22 @@ class App(ctk.CTk):
         self.geometry(f"+{self._win_x + dx}+{self._win_y + dy}")
 
     def _minimize(self):
-        self.iconify()
+        """
+        Minimieren bei overrideredirect:
+        kurz Decorations an, minimieren, beim Restore wieder anpassen.
+        """
+        try:
+            self.overrideredirect(False)
+            self.update_idletasks()
+            self.iconify()
+        finally:
+            def restore_borderless():
+                try:
+                    self.overrideredirect(True)
+                    self._ensure_taskbar_icon_windows()
+                except Exception:
+                    pass
+            self.after(150, restore_borderless)
 
     def _toggle_maximize(self):
         try:
@@ -245,11 +279,37 @@ class App(ctk.CTk):
             else:
                 self.state("zoomed")
         except Exception:
-            # Fallback (nicht auf allen Plattformen verfügbar)
             try:
                 self.attributes("-zoomed", not bool(self.attributes("-zoomed")))
             except Exception:
                 pass
+
+        # nach Zoom/Normal Taskbar-Stil erneut anwenden (Windows)
+        self.after(50, self._ensure_taskbar_icon_windows)
+
+    def _open_help_pdf(self):
+        pdf_path = filedialog.askopenfilename(
+            title="Hilfe (PDF) öffnen",
+            filetypes=[("PDF", "*.pdf")],
+        )
+        if not pdf_path:
+            self._set_status("Hilfe öffnen abgebrochen")
+            return
+
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(pdf_path)
+            elif sys.platform == "darwin":
+                import subprocess
+                subprocess.Popen(["open", pdf_path])
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", pdf_path])
+
+            self._set_status(f"Hilfe geöffnet: {os.path.basename(pdf_path)}")
+        except Exception as e:
+            messagebox.showerror("Hilfe", f"PDF konnte nicht geöffnet werden:\n{e}")
+            self._set_status("Hilfe öffnen fehlgeschlagen")
 
     # =========================
     # Helper: Analyse-Text aus self.metadata bauen
@@ -271,7 +331,7 @@ class App(ctk.CTk):
         )
 
     # =========================
-    # 3.1 ) Helper: "Bild aufnehmen" Button aktiv/deaktiv setzen
+    # Helper: "Bild aufnehmen" Button aktiv/deaktiv setzen
     # =========================
     def _update_capture_button_state(self):
         choice = self.camera_var.get()
@@ -294,34 +354,13 @@ class App(ctk.CTk):
         if self.video_label is not None:
             self.video_label.configure(bg=color)
 
-        # =========================
-        # 4 ) Farbschema Toggle (Hell/Dunkel)
-        # =========================
-        global val_refcolor, val_loadcolor, val_tolcolor, val_resultcolor
-
-        # Standardfarben: Dunkelmodus
-        val_refcolor = "#00B7FF"
-        val_loadcolor = "#00B7FF"
-        val_tolcolor = "#00B7FF"
-        val_resultcolor = "#00B7FF"
-
-        match appearance:
-            case "dark":
-                self.status_label.configure(text_color="#00B7FF")
-                val_refcolor = "#00B7FF"
-            case "light":
-                self.status_label.configure(text_color="#000000")
-                val_refcolor = "#000000"
-                val_loadcolor = "#000000"
-                val_tolcolor = "#000000"
-                val_resultcolor = "#000000"
-            case _:
-                self.status_label.configure(text_color="#FF0000")
-
-    # ===== Farbwechsel =====
+    # =========================
+    # 4 ) Farbschema Toggle (Hell/Dunkel)
+    # =========================
     def _switchcolor(self):
         global appearance
         global colormode
+        global val_refcolor, val_loadcolor, val_tolcolor, val_resultcolor
 
         if appearance == "light":
             appearance = "dark"
@@ -338,12 +377,26 @@ class App(ctk.CTk):
         if self.darkmode_btn is not None:
             self.darkmode_btn.configure(text=colormode)
 
+        # Farben je Mode
+        val_refcolor = "#00B7FF"
+        val_loadcolor = "#00B7FF"
+        val_tolcolor = "#00B7FF"
+        val_resultcolor = "#00B7FF"
+
+        if appearance == "light":
+            val_refcolor = "#000000"
+            val_loadcolor = "#000000"
+            val_tolcolor = "#000000"
+            val_resultcolor = "#000000"
+
+        if hasattr(self, "status_label") and self.status_label is not None:
+            self.status_label.configure(text_color=val_refcolor)
+
         if self.is_streaming:
             self._set_live_background(self.live_bg)
         else:
             self._set_live_background(self.placeholder_bg)
 
-        # wichtig: nach Mode-Wechsel neu zeichnen, damit Letterbox-Farbe sofort passt
         self._redraw_current_image_to_fit()
 
     # =========================
@@ -552,43 +605,7 @@ class App(ctk.CTk):
         y0 = (new_h - target_h) // 2
         return resized[y0: y0 + target_h, x0: x0 + target_w]
 
-    # ===== Helper: RGB Bild im Panel anzeigen =====
-    def _resolve_ctk_color(self, color):
-        """customtkinter-Farbtuples sind i.d.R. (light, dark)."""
-        if isinstance(color, (tuple, list)) and len(color) >= 2:
-            mode = ctk.get_appearance_mode()  # "Dark" oder "Light"
-            return color[1] if mode == "Dark" else color[0]
-        return color
-
-    def _get_gui_bg_rgb(self):
-        """Balkenfarbe für Letterbox: möglichst passend zur aktuellen GUI."""
-        try:
-            src = None
-            if getattr(self, "video_container", None) is not None:
-                src = self.video_container
-            elif getattr(self, "video_label", None) is not None:
-                src = self.video_label
-            else:
-                src = self
-
-            # tk.Frame hat kein fg_color -> kann knallen, dann fallback
-            c = None
-            if hasattr(src, "cget"):
-                try:
-                    c = self._resolve_ctk_color(src.cget("fg_color"))
-                except Exception:
-                    c = None
-            if not c:
-                # Fallback: dunkles/helles Grau je nach Mode
-                c = "#1f1f1f" if ctk.get_appearance_mode() == "Dark" else "#e6e6e6"
-
-            r16, g16, b16 = self.winfo_rgb(c)
-            return (r16 // 256, g16 // 256, b16 // 256)
-        except Exception:
-            return (0, 0, 0)
-
     def _resize_fit_letterbox(self, rgb, target_w, target_h, bg=(0, 0, 0)):
-        """Skaliert mit Aspect-Ratio, ohne Cropping. Rest wird mit bg aufgefüllt (Letterbox)."""
         h, w = rgb.shape[:2]
         if w <= 0 or h <= 0 or target_w <= 0 or target_h <= 0:
             return rgb
@@ -606,6 +623,15 @@ class App(ctk.CTk):
         y0 = (target_h - new_h) // 2
         canvas_img[y0:y0 + new_h, x0:x0 + new_w] = resized
         return canvas_img
+
+    def _get_gui_bg_rgb(self):
+        try:
+            # je Mode passende Balkenfarbe
+            c = "#1f1f1f" if ctk.get_appearance_mode() == "Dark" else "#e6e6e6"
+            r16, g16, b16 = self.winfo_rgb(c)
+            return (r16 // 256, g16 // 256, b16 // 256)
+        except Exception:
+            return (0, 0, 0)
 
     def _display_rgb_in_video_label(self, rgb: np.ndarray):
         if self.video_label is None:
@@ -629,7 +655,6 @@ class App(ctk.CTk):
         self.video_label.image = self._tk_img
 
     def _on_video_resize(self, event=None):
-        """Wird beim Resize des Video-Labels/Containers aufgerufen -> Bild neu rendern (debounced)."""
         if self._in_resize_redraw:
             return
 
@@ -657,7 +682,7 @@ class App(ctk.CTk):
             self._in_resize_redraw = False
 
     # =========================
-    # Bildanpassung: Sättigung (HSV S-Kanal)
+    # Bildanpassung
     # =========================
     def _apply_saturation(self, bgr: np.ndarray, sat: float) -> np.ndarray:
         if bgr is None:
@@ -673,10 +698,6 @@ class App(ctk.CTk):
         out = cv2.cvtColor(hsv2, cv2.COLOR_HSV2BGR)
         return out
 
-    # =========================
-    # Bildanpassung: Kontrast/Helligkeit (LAB L-Kanal)
-    # + danach Sättigung (HSV)
-    # =========================
     def _apply_brightness_contrast(self, bgr: np.ndarray, alpha: float, beta: float) -> np.ndarray:
         if bgr is None:
             return None
@@ -696,7 +717,6 @@ class App(ctk.CTk):
         if bgr is None:
             return None
 
-        # keine Änderung
         if (abs(float(self.contrast_alpha) - 1.0) < 1e-9 and
                 abs(float(self.brightness_beta) - 0.0) < 1e-9 and
                 abs(float(self.saturation_factor) - 1.0) < 1e-9):
@@ -796,7 +816,7 @@ class App(ctk.CTk):
         self._set_status("Bild auf Original zurückgesetzt")
 
     # =========================
-    # 7 ) Live Loop
+    # Live Loop
     # =========================
     def _update_frame_loop(self):
         if not self.is_streaming or self.cap is None:
@@ -820,8 +840,7 @@ class App(ctk.CTk):
 
                 if target_w > 50 and target_h > 50:
                     rgb = self._resize_fill(rgb, target_w, target_h)
-                    pil_img = Image.fromarray(rgb)
-                    pil_img = pil_img.resize((target_w, target_h), Image.Resampling.BILINEAR)
+                    pil_img = Image.fromarray(rgb).resize((target_w, target_h), Image.Resampling.BILINEAR)
                 else:
                     pil_img = Image.fromarray(rgb)
 
@@ -870,7 +889,6 @@ class App(ctk.CTk):
 
                 self.base_frame = bgr.copy()
                 self._recompute_and_show_current()
-
                 self._set_status(f"Gespeichert & geöffnet (Freeze): {path}")
 
             except Exception as e:
@@ -881,7 +899,7 @@ class App(ctk.CTk):
             self._set_status(f"Gespeichert: {path}")
 
     # =========================
-    # 8 ) Bild importieren
+    # Bild importieren
     # =========================
     def _import_image(self):
         self._stop_camera()
@@ -917,7 +935,7 @@ class App(ctk.CTk):
             messagebox.showerror("Fehler", f"Bild konnte nicht importiert werden:\n{e}")
 
     # =========================
-    # 9 ) Bild exportieren
+    # Bild exportieren
     # =========================
     def _export_image(self):
         if self.last_frame is None:
@@ -986,7 +1004,7 @@ class App(ctk.CTk):
             self.cam_status_label.configure(text=msg)
 
     # =========================
-    # Analyse (Thread)
+    # Analyse
     # =========================
     def start_analysis(self):
         if self.last_frame is None:
@@ -1019,7 +1037,6 @@ class App(ctk.CTk):
             if not model_path.exists():
                 raise FileNotFoundError(f"Model nicht gefunden: {model_path}")
 
-            # Bild so analysieren, wie es im GUI angezeigt wird:
             image_bgr = self._apply_all_adjustments(self.last_frame)
             if image_bgr is None:
                 image_bgr = self.last_frame
@@ -1048,9 +1065,9 @@ class App(ctk.CTk):
                 max_area=120,
                 peak_rel=1.0,
                 class_weights=class_weights,
-                class_margin=0.001,  # 0.02
+                class_margin=0.001,
                 ambiguous_policy="ery",
-                leuko_min_abs=0.02,  # 0.06
+                leuko_min_abs=0.02,
                 leuko_min_rel=0.55,
                 hefe_min_abs=0.08,
                 hefe_min_rel=0.60,
@@ -1184,7 +1201,7 @@ class App(ctk.CTk):
             self._set_status("Bericht-Export fehlgeschlagen")
 
     # =========================
-    # 10 ) Metadaten Popup
+    # Metadaten Popup
     # =========================
     def _open_metadata_popup(self, analysis_label: ctk.CTkLabel):
         popup = ctk.CTkToplevel(self)
@@ -1243,7 +1260,7 @@ class App(ctk.CTk):
         save_btn.pack(pady=20)
 
     # =========================
-    # 11 ) Validierung
+    # Validierung
     # =========================
     def start_validation(self):
         self.btn_validate.configure(state="disabled")
@@ -1401,7 +1418,7 @@ class App(ctk.CTk):
         self.progress_frame.pack(pady=6)
 
     # =========================
-    # 12 ) GUI bauen
+    # GUI bauen
     # =========================
     def _build_gui(self):
         # ==========================================================
@@ -1412,7 +1429,6 @@ class App(ctk.CTk):
         titlebar = ctk.CTkFrame(self, height=34, corner_radius=0, fg_color=("gray90", "#1f1f1f"))
         titlebar.pack(fill="x", side="top")
 
-        # Fenster bewegen per Drag
         titlebar.bind("<Button-1>", self._start_move)
         titlebar.bind("<B1-Motion>", self._do_move)
 
@@ -1422,7 +1438,6 @@ class App(ctk.CTk):
         app_title = ctk.CTkLabel(left, text="visCell", font=ctk.CTkFont(size=14, weight="bold"))
         app_title.pack(side="left")
 
-        # Hilfe als Text-only (transparent)
         btn_help = ctk.CTkButton(
             left,
             text="Hilfe",
@@ -1437,7 +1452,6 @@ class App(ctk.CTk):
         )
         btn_help.pack(side="left", padx=(10, 0))
 
-        # Drag auch auf linkem Bereich/Label (damit man überall ziehen kann)
         left.bind("<Button-1>", self._start_move)
         left.bind("<B1-Motion>", self._do_move)
         app_title.bind("<Button-1>", self._start_move)
@@ -1468,7 +1482,7 @@ class App(ctk.CTk):
         # Haupt-GUI (wie vorher)
         # ==========================================================
         main_frame = ctk.CTkFrame(self)
-        main_frame.pack(fill="both", expand=True, padx=10, pady=(10, 10))
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         main_frame.grid_columnconfigure(0, weight=6)
         main_frame.grid_columnconfigure(1, weight=0, minsize=360)
@@ -1529,7 +1543,6 @@ class App(ctk.CTk):
         )
         self.video_label.grid(row=0, column=0, sticky="nsew")
 
-        # Resize-Event binden
         self.video_label.bind("<Configure>", self._on_video_resize)
         self.video_container.bind("<Configure>", self._on_video_resize)
 
@@ -1599,7 +1612,6 @@ class App(ctk.CTk):
 
         self.saturation_slider = saturation_slider
         self.saturation_value_label = value_label
-
         saturation_slider.configure(command=self._on_adjust_changed)
         saturation_slider.set(50)
 
@@ -1616,7 +1628,6 @@ class App(ctk.CTk):
 
         self.contrast_slider = contrast_slider
         self.contrast_value_label = contrast_value_label
-
         contrast_slider.configure(command=self._on_adjust_changed)
         contrast_slider.set(50)
 
@@ -1633,7 +1644,6 @@ class App(ctk.CTk):
 
         self.brightness_slider = brightness_slider
         self.brightness_value_label = brightness_value_label
-
         brightness_slider.configure(command=self._on_adjust_changed)
         brightness_slider.set(50)
 
@@ -1648,7 +1658,7 @@ class App(ctk.CTk):
         self.btn_validate = ctk.CTkButton(button_row, text="Validieren", command=self.start_validation, width=80)
         self.btn_validate.pack(side="left", padx=5, pady=(10, 6))
 
-        ctk.CTkButton(button_row, text="AutoAdjust", command=self._auto_adjust, width=80) \
+        ctk.CTkButton(button_row, text="AutoAdjust", command=self._auto_adjust, width=80)\
             .pack(side="left", padx=5, pady=(10, 6))
         
         ctk.CTkButton(button_row,text="Original-Bild", command=self. _reset_image_adjustments,width=90)\
