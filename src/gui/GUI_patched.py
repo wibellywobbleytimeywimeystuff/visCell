@@ -28,6 +28,7 @@ from PIL import Image, ImageTk
 import sys
 from pathlib import Path
 import json
+import subprocess
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -71,11 +72,12 @@ class App(ctk.CTk):
         self.ki_leuko = 0
         self.ki_hefe = 0
 
-        self.stain_var = ctk.StringVar(value="Kein Färbemittel") # Drop-Down
+        self.stain_var = ctk.StringVar(value="Kein Färbemittel")  # Drop-Down
 
         # ===== KI: Pfade =====
         self.project_root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[2]))
         self.report_template_path = (self.project_root / "docs" / "report_template.json")
+        self.manual_path = (self.project_root / "docs" / "Benutzerhandbuch.pdf")
         self.model_path_stained = (self.project_root / "runs" / "viscell_unet_512_cpu_stained" / "model_best.keras")
         self.model_path_unstained = (self.project_root / "runs" / "viscell_unet_512_cpu_unstained" / "model_best.keras")
         self.validation_ref_image = (self.project_root / "data" / "ref" / "ref_113_2_0.png")
@@ -84,14 +86,14 @@ class App(ctk.CTk):
         self.cap = None
         self.is_streaming = False
         self.current_cam_index = None
-        self.last_frame = None                 # immer das "zu exportierende" Bild (BGR)
+        self.last_frame = None
         self.current_image_path = None
 
-        # ===== Bildanpassung (Helligkeit / Kontrast / Sättigung) =====
-        self.base_frame = None                 # "Original" (BGR) für aktuelle Anzeigequelle
-        self.contrast_alpha = 1.0              # Kontrastfaktor
-        self.brightness_beta = 0.0             # Helligkeitsoffset
-        self.saturation_factor = 1.0           # Sättigungsfaktor (1.0 = neutral)
+        # ===== Bildanpassung =====
+        self.base_frame = None
+        self.contrast_alpha = 1.0
+        self.brightness_beta = 0.0
+        self.saturation_factor = 1.0
 
         # Slider-Referenzen
         self.saturation_slider = None
@@ -130,6 +132,7 @@ class App(ctk.CTk):
         self.analysis_label = None
         self.cam_status_label = None
         self.darkmode_btn = None
+        self.help_button = None
 
         self.capture_btn = None
 
@@ -188,6 +191,34 @@ class App(ctk.CTk):
         )
 
     # =========================
+    # Hilfe-PDF öffnen
+    # =========================
+    def _open_benutzerhandbuch(self):
+        pdf_path = self.manual_path
+
+        if not pdf_path.exists():
+            messagebox.showerror(
+                "Benutzerhandbuch",
+                f"Die PDF wurde nicht gefunden:\n{pdf_path}"
+            )
+            return
+
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(str(pdf_path))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(pdf_path)])
+            else:
+                subprocess.Popen(["xdg-open", str(pdf_path)])
+
+            self._set_status("Benutzerhandbuch geöffnet")
+        except Exception as e:
+            messagebox.showerror(
+                "Benutzerhandbuch",
+                f"Die PDF konnte nicht geöffnet werden:\n{e}"
+            )
+
+    # =========================
     # 3.1 ) Helper: "Bild aufnehmen" Button aktiv/deaktiv setzen
     # =========================
     def _update_capture_button_state(self):
@@ -211,12 +242,8 @@ class App(ctk.CTk):
         if self.video_label is not None:
             self.video_label.configure(bg=color)
 
-        # =========================
-        # 4 ) Farbschema Toggle (Hell/Dunkel)
-        # =========================
         global val_refcolor, val_loadcolor, val_tolcolor, val_resultcolor
 
-        # Standardfarben: Dunkelmodus
         val_refcolor = "#00B7FF"
         val_loadcolor = "#00B7FF"
         val_tolcolor = "#00B7FF"
@@ -224,16 +251,19 @@ class App(ctk.CTk):
 
         match appearance:
             case "dark":
-                self.status_label.configure(text_color="#00B7FF")
+                if hasattr(self, "status_label") and self.status_label is not None:
+                    self.status_label.configure(text_color="#00B7FF")
                 val_refcolor = "#00B7FF"
             case "light":
-                self.status_label.configure(text_color="#000000")
+                if hasattr(self, "status_label") and self.status_label is not None:
+                    self.status_label.configure(text_color="#000000")
                 val_refcolor = "#000000"
                 val_loadcolor = "#000000"
                 val_tolcolor = "#000000"
                 val_resultcolor = "#000000"
             case _:
-                self.status_label.configure(text_color="#FF0000")
+                if hasattr(self, "status_label") and self.status_label is not None:
+                    self.status_label.configure(text_color="#FF0000")
 
     # ===== Farbwechsel =====
     def _switchcolor(self):
@@ -260,15 +290,21 @@ class App(ctk.CTk):
         else:
             self._set_live_background(self.placeholder_bg)
 
+        self._redraw_current_image_to_fit()
+
     # =========================
     # 5 ) Footer
     # =========================
-        self._redraw_current_image_to_fit()
     def _build_footer(self):
         footer = ctk.CTkFrame(self, height=30)
         footer.pack(fill="x", side="bottom")
 
-        self.darkmode_btn = ctk.CTkButton(footer, text=self.colormode_text, command=self._switchcolor, width=110)
+        self.darkmode_btn = ctk.CTkButton(
+            footer,
+            text=self.colormode_text,
+            command=self._switchcolor,
+            width=110
+        )
         self.darkmode_btn.pack(side="right", padx=5, pady=5)
 
     # ===== Kameras finden =====
@@ -302,7 +338,7 @@ class App(ctk.CTk):
     # ===== Freeze Toggle =====
     def _on_freeze_toggle(self):
         if not self.freeze_after_capture_var.get():
-            if (self.cap is not None and self.current_cam_index is not None and not self.is_streaming):
+            if self.cap is not None and self.current_cam_index is not None and not self.is_streaming:
                 self.is_streaming = True
                 self._set_status("Live-Feed fortgesetzt (Freeze aus)")
                 self._hide_overlay_text()
@@ -398,20 +434,13 @@ class App(ctk.CTk):
         y0 = (new_h - target_h) // 2
         return resized[y0: y0 + target_h, x0: x0 + target_w]
 
-    # ===== Helper: RGB Bild im Panel anzeigen =====
-
     def _resolve_ctk_color(self, color):
-        """
-        customtkinter-Farbtuples sind i.d.R. (light, dark).
-        """
         if isinstance(color, (tuple, list)) and len(color) >= 2:
-            mode = ctk.get_appearance_mode()  # "Dark" oder "Light"
+            mode = ctk.get_appearance_mode()
             return color[1] if mode == "Dark" else color[0]
         return color
 
-
     def _get_gui_bg_rgb(self):
-        """Balkenfarbe für Letterbox: möglichst passend zur aktuellen GUI."""
         try:
             src = None
             if getattr(self, "video_container", None) is not None:
@@ -427,8 +456,20 @@ class App(ctk.CTk):
         except Exception:
             return (0, 0, 0)
 
+    def _get_letterbox_bg_rgb(self):
+    
+        try:
+        # Hauptfenster / GUI-Hintergrund lesen
+            c = self._resolve_ctk_color(self.cget("fg_color"))
+            r16, g16, b16 = self.winfo_rgb(c)
+            return (r16 // 256, g16 // 256, b16 // 256)
+        except Exception:
+            pass
+
+    # Fallback passend zu CTk-Standard
+        return (235, 235, 235) if ctk.get_appearance_mode() == "Light" else (43, 43, 43)
+
     def _resize_fit_letterbox(self, rgb, target_w, target_h, bg=(0, 0, 0)):
-        """Skaliert mit Aspect-Ratio, ohne Cropping. Rest wird mit bg aufgefüllt (Letterbox)."""
         h, w = rgb.shape[:2]
         if w <= 0 or h <= 0 or target_w <= 0 or target_h <= 0:
             return rgb
@@ -439,15 +480,13 @@ class App(ctk.CTk):
 
         resized = cv2.resize(rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-        canvas = np.zeros((target_h, target_w, 3), dtype=np.uint8)
-        canvas[:] = bg
+        canvas_img = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+        canvas_img[:] = bg
 
         x0 = (target_w - new_w) // 2
         y0 = (target_h - new_h) // 2
-        canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
-        return canvas
-
-    # ===== Helper: RGB Bild im Panel anzeigen =====
+        canvas_img[y0:y0 + new_h, x0:x0 + new_w] = resized
+        return canvas_img
 
     def _init_display_size_from_label(self):
         if self.video_label is None:
@@ -458,15 +497,13 @@ class App(ctk.CTk):
             self._disp_w, self._disp_h = w, h
 
     # =========================
-    # Helper: Analyse-Text aus self.metadata bauen
+    # PDF Bericht exportieren
     # =========================
-
     def _export_report(self):
         if self.last_frame is None:
             self._set_status("Kein Bild vorhanden – erst Kamera/Bild importieren")
             return
 
-        # Template laden
         if not self.report_template_path.exists():
             messagebox.showerror("Bericht", f"Template nicht gefunden:\n{self.report_template_path}")
             return
@@ -478,7 +515,6 @@ class App(ctk.CTk):
             messagebox.showerror("Bericht", f"Template kann nicht gelesen werden:\n{e}")
             return
 
-        # Platzhalter-Daten sammeln
         m = self.metadata.copy()
         data = {
             **m,
@@ -488,7 +524,6 @@ class App(ctk.CTk):
             "stain": self.stain_var.get(),
         }
 
-        # Speicherort wählen
         ts = datetime.now().strftime("%d%m%Y_%H%M%S")
         default_name = f"visCell_report_{ts}.pdf"
         save_path = filedialog.asksaveasfilename(
@@ -502,7 +537,6 @@ class App(ctk.CTk):
             self._set_status("Bericht-Export abgebrochen")
             return
 
-        # PDF erzeugen (simple, aber robust)
         try:
             c = canvas.Canvas(save_path, pagesize=A4)
             page_w, page_h = A4
@@ -518,7 +552,6 @@ class App(ctk.CTk):
             c.setFont("Helvetica", 11)
 
             def render_line(line: str) -> str:
-                # sehr einfacher Platzhalter-Replace: {{key}}
                 out = line
                 for k, v in data.items():
                     out = out.replace("{{" + str(k) + "}}", str(v))
@@ -538,13 +571,11 @@ class App(ctk.CTk):
                 for line in lines:
                     txt = render_line(str(line))
 
-                    # Seitenumbruch
                     if y < 20 * mm:
                         c.showPage()
                         c.setFont("Helvetica", 11)
                         y = page_h - 20 * mm
 
-                    # sehr simples Text-Wrapping (kurz & stabil)
                     max_chars = 95
                     while len(txt) > max_chars:
                         c.drawString(x, y, txt[:max_chars])
@@ -568,28 +599,28 @@ class App(ctk.CTk):
             self._set_status("Bericht-Export fehlgeschlagen")
 
     # =========================
-    # 10 ) Metadaten Popup
+    # Anzeige Bild
     # =========================
-
     def _display_rgb_in_video_label(self, rgb: np.ndarray):
         if self.video_label is None:
             return
 
-        self._set_live_background(self.live_bg)
         self._hide_overlay_text()
 
-        # Zielgröße stabil bestimmen (Label kann beim Start noch 1x1 sein)
         self.video_label.update_idletasks()
         target_w = self.video_label.winfo_width()
         target_h = self.video_label.winfo_height()
 
         if target_w <= 50 or target_h <= 50:
-            # Fallback + später nochmal initialisieren
             target_w, target_h = 1280, 720
             self.after(0, self._init_display_size_from_label)
 
-        # FIT + Letterbox (kein Crop), Balken in GUI-Hintergrundfarbe
-        rgb = self._resize_fit_letterbox(rgb, target_w, target_h, bg=self._get_gui_bg_rgb())
+        rgb = self._resize_fit_letterbox(
+            rgb,
+            target_w,
+            target_h,
+            bg=self._get_letterbox_bg_rgb()
+        )
 
         pil_img = Image.fromarray(rgb)
         self._tk_img = ImageTk.PhotoImage(pil_img)
@@ -597,11 +628,9 @@ class App(ctk.CTk):
         self.video_label.image = self._tk_img
 
     def _on_video_resize(self, event=None):
-        """Wird beim Resize des Video-Labels/Containers aufgerufen -> Bild neu rendern (debounced)."""
         if self._in_resize_redraw:
             return
 
-        # Debounce: viele Configure-Events beim Ziehen abfangen
         if self._resize_after_id is not None:
             try:
                 self.after_cancel(self._resize_after_id)
@@ -612,13 +641,11 @@ class App(ctk.CTk):
         self._resize_after_id = self.after(80, self._redraw_current_image_to_fit)
 
     def _redraw_current_image_to_fit(self):
-        """Zeichnet das aktuell letzte Bild passend zur neuen Label-Größe."""
         self._resize_after_id = None
 
         if self.video_label is None:
             return
 
-        # Wenn kein Bild da ist -> Placeholder lassen
         if self.last_frame is None:
             return
 
@@ -630,7 +657,7 @@ class App(ctk.CTk):
             self._in_resize_redraw = False
 
     # =========================
-    # Bildanpassung: Sättigung (HSV S-Kanal)
+    # Bildanpassung
     # =========================
     def _apply_saturation(self, bgr: np.ndarray, sat: float) -> np.ndarray:
         if bgr is None:
@@ -646,10 +673,6 @@ class App(ctk.CTk):
         out = cv2.cvtColor(hsv2, cv2.COLOR_HSV2BGR)
         return out
 
-    # =========================
-    # Bildanpassung: Kontrast/Helligkeit (LAB L-Kanal)
-    # + danach Sättigung (HSV)
-    # =========================
     def _apply_brightness_contrast(self, bgr: np.ndarray, alpha: float, beta: float) -> np.ndarray:
         if bgr is None:
             return None
@@ -668,10 +691,12 @@ class App(ctk.CTk):
     def _apply_all_adjustments(self, bgr: np.ndarray) -> np.ndarray:
         if bgr is None:
             return None
-        # ===== Keine Bildänderung durch Schieberegler, Bild geladen durch Pipeline =====
-        if (abs(float(self.contrast_alpha) - 1.0) < 1e-9 and
+
+        if (
+            abs(float(self.contrast_alpha) - 1.0) < 1e-9 and
             abs(float(self.brightness_beta) - 0.0) < 1e-9 and
-            abs(float(self.saturation_factor) - 1.0) < 1e-9):
+            abs(float(self.saturation_factor) - 1.0) < 1e-9
+        ):
             return bgr
 
         adjusted = self._apply_brightness_contrast(
@@ -684,6 +709,19 @@ class App(ctk.CTk):
 
         adjusted = self._apply_saturation(adjusted, sat=float(self.saturation_factor))
         return adjusted
+
+    def _reset_image_adjustments(self):
+        if self.saturation_slider is not None:
+            self.saturation_slider.set(50)
+
+        if self.contrast_slider is not None:
+            self.contrast_slider.set(50)
+
+        if self.brightness_slider is not None:
+            self.brightness_slider.set(50)
+
+        self._on_adjust_changed()
+        self._set_status("Bild auf Original zurückgesetzt")
 
     def _recompute_and_show_current(self):
         if self.base_frame is None:
@@ -764,7 +802,6 @@ class App(ctk.CTk):
                 frame = cv2.flip(frame, 1)
 
                 self.current_image_path = None
-
                 self.base_frame = frame.copy()
 
                 adjusted = self._apply_all_adjustments(self.base_frame)
@@ -915,7 +952,6 @@ class App(ctk.CTk):
             self._set_status("Export fehlgeschlagen")
             messagebox.showerror("Fehler", f"Bild konnte nicht exportiert werden:\n{e}")
 
-    # ===== Optional: Alles aus captures/ exportieren =====
     def _export_all_captures(self):
         target_dir = filedialog.askdirectory(
             title="Zielordner wählen (alle Captures exportieren)",
@@ -945,7 +981,6 @@ class App(ctk.CTk):
         if self.cam_status_label is not None:
             self.cam_status_label.configure(text=msg)
 
-    
     def start_analysis(self):
         if self.last_frame is None:
             self._set_status("Kein Bild vorhanden – erst Kamera wählen / Bild importieren")
@@ -977,9 +1012,6 @@ class App(ctk.CTk):
             if not model_path.exists():
                 raise FileNotFoundError(f"Model nicht gefunden: {model_path}")
 
-
-            # Bild so analysieren, wie es im GUI angezeigt wird:
-            # Slider/AutoAdjust werden hier angewendet, wie bisher.
             image_bgr = self._apply_all_adjustments(self.last_frame)
             if image_bgr is None:
                 image_bgr = self.last_frame
@@ -1008,9 +1040,9 @@ class App(ctk.CTk):
                 max_area=120,
                 peak_rel=1.0,
                 class_weights=class_weights,
-                class_margin=0.001,  # 0.02
+                class_margin=0.001,
                 ambiguous_policy="ery",
-                leuko_min_abs=0.02,  # 0.06
+                leuko_min_abs=0.02,
                 leuko_min_rel=0.55,
                 hefe_min_abs=0.08,
                 hefe_min_rel=0.60,
@@ -1041,7 +1073,7 @@ class App(ctk.CTk):
             if self.btn_analyze is not None:
                 self.after(0, lambda: self.btn_analyze.configure(state="normal"))
 
-# =========================
+    # =========================
     # 10 ) Metadaten Popup
     # =========================
     def _open_metadata_popup(self, analysis_label: ctk.CTkLabel):
@@ -1057,7 +1089,6 @@ class App(ctk.CTk):
         )
         title_label.pack(pady=10)
 
-        # ===== Felder Popup =====
         fields = [
             "Analysedatum",
             "Prüfer",
@@ -1069,7 +1100,6 @@ class App(ctk.CTk):
         ]
 
         entries = {}
-        ## ===== GUI Popup: speichern =====
         for field in fields:
             frame = ctk.CTkFrame(popup)
             frame.pack(fill="x", padx=20, pady=5)
@@ -1105,15 +1135,12 @@ class App(ctk.CTk):
     # =========================
     # 11 ) Validierung
     # =========================
-    # ===== Validierung starten =====
     def start_validation(self):
         self.btn_validate.configure(state="disabled")
         self._show_progress()
-        thread = threading.Thread(target=self._validation_process, daemon=True)  # Hintergrundprozess
+        thread = threading.Thread(target=self._validation_process, daemon=True)
         thread.start()
 
-    # ===== Validierungsprozess =====
-    # Mit Fortschrittsbalken
     def _validation_process(self):
         time.sleep(0.4)
 
@@ -1144,11 +1171,6 @@ class App(ctk.CTk):
         if not self.validation_ref_image.exists():
             raise FileNotFoundError(f"Referenzbild nicht gefunden: {self.validation_ref_image}")
 
-        # Referenzbild exakt wie beim Import laden (PIL -> BGR) und dann mit aktuellen GUI-Reglern bearbeiten.
-        from PIL import Image
-        import numpy as np
-        import cv2
-
         pil_img = Image.open(self.validation_ref_image).convert("RGB")
         rgb = np.array(pil_img)
         bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
@@ -1170,9 +1192,9 @@ class App(ctk.CTk):
             max_area=120,
             peak_rel=1.0,
             class_weights=class_weights,
-            class_margin=0.001,  # 0.02
+            class_margin=0.001,
             ambiguous_policy="ery",
-            leuko_min_abs=0.02,  # 0.06
+            leuko_min_abs=0.02,
             leuko_min_rel=0.55,
             hefe_min_abs=0.08,
             hefe_min_rel=0.60,
@@ -1207,7 +1229,7 @@ class App(ctk.CTk):
         untergrenze = soll - toleranz
         obergrenze = soll + toleranz
         self.delta_ery = soll - ist
-        self.delta_ery_prozent = round(int(100)/soll*self.delta_ery, 2)
+        self.delta_ery_prozent = round(int(100) / soll * self.delta_ery, 2)
 
         ok = untergrenze <= ist <= obergrenze
         return ok, toleranz
@@ -1215,7 +1237,7 @@ class App(ctk.CTk):
     def _popup_confirm(self, ist: int, soll: int, tol: int):
         if self.validierung_ok:
             text = (
-                f"""Validierung erfolgreich.\n\n"""
+                f"Validierung erfolgreich.\n\n"
                 f"Sollwert Erythrozyten: {soll}  Leukozyten: {int(self.soll_leuko)}  Hefe: {int(self.soll_hefe)}\n"
                 f"Istwert   Erythrozyten: {ist}  Leukozyten: {int(self.ki_leuko)}  Hefe: {int(self.ki_hefe)}\n\n"
                 f"Toleranz: ±{self.delta_ery} Zellen ±({self.delta_ery_prozent}% / {deltatol*100:.2f}%)\n\n"
@@ -1280,14 +1302,19 @@ class App(ctk.CTk):
         main_frame.grid_rowconfigure(1, weight=1)
 
         controls_frame = ctk.CTkFrame(main_frame)
-        controls_frame.grid(row=0, column=0, sticky="w", pady=(0, 10))
+        controls_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        controls_frame.grid_columnconfigure(4, weight=1)
 
         detected = self._detect_cameras(max_index=5)
         camera_values = ["Kamera auswählen..."] + detected
         if len(detected) == 0:
             camera_values = ["Kamera auswählen...", "Keine Kamera gefunden"]
 
-        self.camera_select = ctk.CTkOptionMenu(controls_frame, values=camera_values, variable=self.camera_var)
+        self.camera_select = ctk.CTkOptionMenu(
+            controls_frame,
+            values=camera_values,
+            variable=self.camera_var
+        )
         self.camera_select.grid(row=0, column=0, padx=5)
 
         self.freeze_checkbox = ctk.CTkCheckBox(
@@ -1298,15 +1325,41 @@ class App(ctk.CTk):
         )
         self.freeze_checkbox.grid(row=0, column=1, padx=10)
 
-        self.btn_analyze = ctk.CTkButton(controls_frame, text="Analyse starten", command=self.start_analysis)
+        self.btn_analyze = ctk.CTkButton(
+            controls_frame,
+            text="Analyse starten",
+            command=self.start_analysis
+        )
         self.btn_analyze.grid(row=0, column=2, padx=5)
 
         stain_values = ["Kein Färbemittel", "Giemsa", "Gram", "May-Grünwald", "Methylenblau"]
-        self.stain_select = ctk.CTkOptionMenu(controls_frame, values=stain_values, variable=self.stain_var)
+        self.stain_select = ctk.CTkOptionMenu(
+            controls_frame,
+            values=stain_values,
+            variable=self.stain_var
+        )
         self.stain_select.grid(row=0, column=3, padx=5)
 
-        self.cam_status_label = ctk.CTkLabel(controls_frame, text="", width=400, anchor="w")
-        self.cam_status_label.grid(row=0, column=4, padx=10)
+        self.cam_status_label = ctk.CTkLabel(
+            controls_frame,
+            text="",
+            width=400,
+            anchor="w"
+        )
+        self.cam_status_label.grid(row=0, column=4, padx=10, sticky="w")
+
+        self.help_button = ctk.CTkButton(
+            controls_frame,
+            text="Hilfe",
+            command=self._open_benutzerhandbuch,
+            width=60,
+            fg_color="transparent",
+            bg_color="transparent",
+            hover_color=("gray75", "gray25"),
+            border_width=0,
+            text_color=("black", "white")
+        )
+        self.help_button.grid(row=0, column=5, padx=(10, 5), sticky="e")
 
         live_view = ctk.CTkFrame(main_frame, fg_color=self.placeholder_bg, corner_radius=0)
         live_view.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
@@ -1328,9 +1381,7 @@ class App(ctk.CTk):
         )
         self.video_label.grid(row=0, column=0, sticky="nsew")
 
-        # ===== NEU: Resize-Event binden (damit import/freeze Bild mitskaliert) =====
         self.video_label.bind("<Configure>", self._on_video_resize)
-        # Optional zusätzlich:
         self.video_container.bind("<Configure>", self._on_video_resize)
 
         self.video_text = ctk.CTkLabel(
@@ -1381,12 +1432,15 @@ class App(ctk.CTk):
             command=lambda: self._open_metadata_popup(analysis_label),
         ).pack(side="left", pady=10)
 
-        ctk.CTkButton(export_frame, text="Bericht exportieren", command=self._export_report).pack(side="left", padx=10, pady=10)
+        ctk.CTkButton(
+            export_frame,
+            text="Bericht exportieren",
+            command=self._export_report
+        ).pack(side="left", padx=10, pady=10)
 
         slider_frame = ctk.CTkFrame(right_panel)
         slider_frame.pack(fill="x", padx=10, pady=10)
 
-        # ===== Sättigung =====
         row = ctk.CTkFrame(slider_frame, fg_color="transparent")
         row.pack(fill="x", padx=10, pady=(8, 2))
 
@@ -1403,7 +1457,6 @@ class App(ctk.CTk):
         saturation_slider.configure(command=self._on_adjust_changed)
         saturation_slider.set(50)
 
-        # ===== Kontrast =====
         row_contrast = ctk.CTkFrame(slider_frame, fg_color="transparent")
         row_contrast.pack(fill="x", padx=10, pady=(8, 2))
 
@@ -1420,7 +1473,6 @@ class App(ctk.CTk):
         contrast_slider.configure(command=self._on_adjust_changed)
         contrast_slider.set(50)
 
-        # ===== Helligkeit =====
         row_brightness = ctk.CTkFrame(slider_frame, fg_color="transparent")
         row_brightness.pack(fill="x", padx=10, pady=(8, 2))
 
@@ -1448,8 +1500,9 @@ class App(ctk.CTk):
         self.btn_validate = ctk.CTkButton(button_row, text="Validieren", command=self.start_validation, width=80)
         self.btn_validate.pack(side="left", padx=5, pady=(10, 6))
 
-        ctk.CTkButton(button_row, text="AutoAdjust", command=self._auto_adjust, width=80)\
-            .pack(side="left", padx=5, pady=(10, 6))
+        ctk.CTkButton(button_row, text="AutoAdjust", command=self._auto_adjust, width=80).pack(side="left", padx=5, pady=(10, 6))
+
+        ctk.CTkButton(button_row, text="Original-Bild", command=self._reset_image_adjustments, width=90).pack(side="left", padx=5, pady=(10, 6))
 
         self.status_label = ctk.CTkLabel(function_frame, text="Bereit", text_color="#00B7FF")
         self.status_label.pack(pady=(0, 8))
