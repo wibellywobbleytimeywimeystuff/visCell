@@ -155,7 +155,7 @@ class App(ctk.CTk):
             "Notizen": "",
         }
 
-        # ===== Easteregg / Overlay =====
+        # ===== Overlay =====
         self._ui_toggle_hits = []
         self._overlay_active = False
         self._overlay_jobs = []
@@ -304,7 +304,7 @@ class App(ctk.CTk):
 
         self._redraw_current_image_to_fit()
 
-        # Easteregg Trigger prüfen
+        # Trigger prüfen
         self._handle_ui_toggle_sequence()
 
     # =========================
@@ -1004,7 +1004,7 @@ class App(ctk.CTk):
             self.cam_status_label.configure(text=msg)
 
     # =========================
-    # Easteregg: Schnelle UI-Interaktion erkennen
+    # Schnelle UI-Interaktion erkennen
     # =========================
     def _handle_ui_toggle_sequence(self):
         if self._overlay_active:
@@ -1021,12 +1021,12 @@ class App(ctk.CTk):
             self._start_overlay_sequence()
 
     # =========================
-    # Easteregg: Overlay-Sequenz starten
+    # Overlay-Sequenz starten
     # =========================
     def _start_overlay_sequence(self):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = self.project_root / "docs"
         filenames = ["easter_1.png", "easter_2.png", "easter_3.png", "easter_4.png"]
-        paths = [os.path.join(base_dir, f) for f in filenames]
+        paths = [str(base_dir / f) for f in filenames]
 
         missing = [os.path.basename(p) for p in paths if not os.path.isfile(p)]
         if missing:
@@ -1066,7 +1066,7 @@ class App(ctk.CTk):
         self._schedule_overlay_once(38000, self._stop_overlay_sequence)
 
     # =========================
-    # Easteregg: Stop über Maus-Bewegung
+    # Stop über Maus-Bewegung
     # =========================
     def _on_overlay_pointer_move(self, _event):
         if not self._overlay_active:
@@ -1085,7 +1085,7 @@ class App(ctk.CTk):
             self._stop_overlay_sequence()
 
     # =========================
-    # Easteregg: Frame rendern
+    # Frame rendern
     # =========================
     def _render_overlay_frame(self):
         if not self._overlay_active or not self._overlay_frames:
@@ -1116,7 +1116,7 @@ class App(ctk.CTk):
         self.video_label.image = self._tk_img
 
     # =========================
-    # Easteregg: Rotation weiterdrehen
+    # Rotation weiterdrehen
     # =========================
     def _step_overlay_rotation(self):
         if not self._overlay_active:
@@ -1125,7 +1125,7 @@ class App(ctk.CTk):
         self._render_overlay_frame()
 
     # =========================
-    # Easteregg: Nächstes Bild laden
+    # Nächstes Bild laden
     # =========================
     def _step_overlay_frame(self):
         if not self._overlay_active:
@@ -1140,7 +1140,7 @@ class App(ctk.CTk):
         self._render_overlay_frame()
 
     # =========================
-    # Easteregg: Timer-Helfer
+    # Timer-Helfer
     # =========================
     def _schedule_overlay_repeat(self, ms, func):
         def _loop():
@@ -1158,7 +1158,7 @@ class App(ctk.CTk):
         self._overlay_jobs.append(aid)
 
     # =========================
-    # Easteregg: Overlay-Sequenz beenden
+    # Overlay-Sequenz beenden
     # =========================
     def _stop_overlay_sequence(self):
         if not self._overlay_active:
