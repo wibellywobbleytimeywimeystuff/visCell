@@ -1505,8 +1505,6 @@ class App(ctk.CTk):
 
         ctk.CTkButton(button_row, text="AutoAdjust", command=self._auto_adjust, width=80).pack(side="left", padx=5, pady=(10, 6))
 
-        ctk.CTkButton(button_row, text="Original-Bild", command=self._reset_image_adjustments, width=90).pack(side="left", padx=5, pady=(10, 6))
-
         ctk.CTkButton(button_row,text="Original-Bild",command=self._reset_image_adjustments, width=90)\
             .pack(side="left", padx=5, pady=(10,6))
 
