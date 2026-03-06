@@ -1,0 +1,55 @@
+Error Handling
+Live-Feed bei Kamerawechsel
+    - löschen des Inhaltes der Varibale worauf die Cam-Quelle läuft
+    - das löschen wird quasi erzwungen, damit das Kamera-Panel nicht stockt
+    - Varibale kann direkt den neuen Live feed annehmen und anzeigen
+    - 
+
+Artefakte im Livebild
+    - ein dünner senkrechter schwarzer Strich in mitten der Liveanzeige der Kamera
+    - Artefakt, was wahrscheinlich durch Gui erzeugt wird
+    - Lösung: das Kamera Panel wird nach ganz oben geleckt (wenn man das Gui in ebenen betrachtet)
+
+Schrift auf Kamerapanel
+    - die schrift beim Cam-Panel macht den Farbwechsel nicht mit
+    - Lösung: Schrift-Variable bei der Ende ganz oben hingelegt, wie beim Artefakt im Livebild
+
+Schriftfarbwechsel nach validierung
+ - Schriftfarbe bleibt nicht kostant bei Farbwechsel
+ - Definierung einer Variable die sich die Farbe merkt
+ - if funktion die guckt welche was angezeigt wird und wenn farbe gewechselt wird entweder beibehält oder andere nimmt, für eine bessere Anzeige fürs bessere Lesen
+
+ Kameraaktualisierung
+    - soll nur aktualisiert werden, wenn man auf das Dropdown Menü klickt, damit es nicht ständig aktualisiert wird
+    - Lösung: Aktualisierung des Dropdown Menüs nur bei Klick auf das Dropdown Menü
+
+Originalbild zurücksetzen button eingefügt 
+
+
+Dummer Anwender Dario
+sättigung nicht im autoadjust zu tun
+bild hängt sich auf
+popup fenster für metadaten sollte nicht größenverstellbar sein
+autoajust abhängig von elementen im bild und nicht von roh daten vom livefeed
+
+
+das drop down menü soll sich akualisieren sobald man auf dieses drückt, außerdem soll auch nur dann die Quellenabfrage für ein änderung der Kameras gestartet werden. hierbei ist zu achten, das die visuelle aktualisierung des Dropdown menüs erst passiert, wenn bereits geguckt wurde, ob es mehr oder weniger quellen gibt, sodass dann direkt das Dropdown menü aktualisiert werden kann. achte darauf das nicht dauerhaft die Quellen neu initialisiert werden, ansonsten hab ich wieder standbilder.
+
+  
+
+
+
+
+
+
+
+    Berichtsgenerator:
+    - Erstellung einer Probedatei fürs Design
+    - Konvertierung in eine ".json"-Datei -> erstellung eines Templates
+            -> wird genutzt als Vorlage für die Erstellung der Berichte
+    - einfügen und umbennenung der Variablen aus dem Popup-Fenster im GUI
+    - einflegung der Variablen in das Template
+    - implementierung der Bibliotheken für berichterstellung und lesen einer json-datei
+    - richtigen dateipfad für das zugreifen aufs template einfügen
+    - rahmenbedingungen festlegen für das Layout des Berichts
+    - Button für die Erstellung des Berichts funktion zuweisen

@@ -37,7 +37,7 @@ from reportlab.lib.units import mm
 #  2 ) Globale Einstellungen
 # ============================
 appearance = "dark"
-colormode = ("Hellmodus")
+colormode = "Hellmodus"
 ctk.set_appearance_mode(appearance)
 ctk.set_default_color_theme("blue")
 
@@ -72,15 +72,15 @@ class App(ctk.CTk):
         self.ki_leuko = 0
         self.ki_hefe = 0
 
-        self.stain_var = ctk.StringVar(value="Kein Färbemittel")  # Drop-Down
+        self.stain_var = ctk.StringVar(value="Kein Färbemittel")
 
         # ===== KI: Pfade =====
         self.project_root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[2]))
-        self.report_template_path = (self.project_root / "docs" / "report_template.json")
-        self.manual_path = (self.project_root / "docs" / "Benutzerhandbuch.pdf")
-        self.model_path_stained = (self.project_root / "runs" / "viscell_unet_512_cpu_stained" / "model_best.keras")
-        self.model_path_unstained = (self.project_root / "runs" / "viscell_unet_512_cpu_unstained" / "model_best.keras")
-        self.validation_ref_image = (self.project_root / "data" / "ref" / "ref_113_2_0.png")
+        self.report_template_path = self.project_root / "docs" / "report_template.json"
+        self.manual_path = self.project_root / "docs" / "Benutzerhandbuch.pdf"
+        self.model_path_stained = self.project_root / "runs" / "viscell_unet_512_cpu_stained" / "model_best.keras"
+        self.model_path_unstained = self.project_root / "runs" / "viscell_unet_512_cpu_unstained" / "model_best.keras"
+        self.validation_ref_image = self.project_root / "data" / "ref" / "ref_113_2_0.png"
 
         # ===== Kamera / Video Status-Variablen =====
         self.cap = None
@@ -88,6 +88,7 @@ class App(ctk.CTk):
         self.current_cam_index = None
         self.last_frame = None
         self.current_image_path = None
+        self._last_selected_cam_index = None
 
         # ===== Bildanpassung =====
         self.base_frame = None
@@ -133,7 +134,6 @@ class App(ctk.CTk):
         self.cam_status_label = None
         self.darkmode_btn = None
         self.help_button = None
-
         self.capture_btn = None
 
         # ===== self.farbwechsel =====
@@ -154,6 +154,18 @@ class App(ctk.CTk):
             "Probennummer": "",
             "Notizen": "",
         }
+
+        # ===== Easteregg / Overlay =====
+        self._ui_toggle_hits = []
+        self._overlay_active = False
+        self._overlay_jobs = []
+        self._overlay_frames = []
+        self._overlay_idx = 0
+        self._overlay_rot = 0
+        self._overlay_resume_stream = False
+        self._overlay_pointer_origin = None
+        self._overlay_pointer_radius = 40
+        self._status_before_overlay = ""
 
         # Fenster-Schließen abfangen
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -292,6 +304,9 @@ class App(ctk.CTk):
 
         self._redraw_current_image_to_fit()
 
+        # Easteregg Trigger prüfen
+        self._handle_ui_toggle_sequence()
+
     # =========================
     # 5 ) Footer
     # =========================
@@ -330,6 +345,7 @@ class App(ctk.CTk):
     def _on_camera_selected(self, choice: str):
         if choice.startswith("Camera "):
             idx = int(choice.split()[-1])
+            self._last_selected_cam_index = idx
             self._start_camera(idx)
         else:
             self._stop_camera()
@@ -373,6 +389,9 @@ class App(ctk.CTk):
 
     # ===== Kamera Start/Stop =====
     def _start_camera(self, index: int):
+        if self._overlay_active:
+            return
+
         self._stop_camera()
         self.cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
 
@@ -388,6 +407,7 @@ class App(ctk.CTk):
             return
 
         self.current_cam_index = index
+        self._last_selected_cam_index = index
         self.is_streaming = True
 
         self._set_live_background(self.live_bg)
@@ -457,16 +477,13 @@ class App(ctk.CTk):
             return (0, 0, 0)
 
     def _get_letterbox_bg_rgb(self):
-    
         try:
-        # Hauptfenster / GUI-Hintergrund lesen
             c = self._resolve_ctk_color(self.cget("fg_color"))
             r16, g16, b16 = self.winfo_rgb(c)
             return (r16 // 256, g16 // 256, b16 // 256)
         except Exception:
             pass
 
-    # Fallback passend zu CTk-Standard
         return (235, 235, 235) if ctk.get_appearance_mode() == "Light" else (43, 43, 43)
 
     def _resize_fit_letterbox(self, rgb, target_w, target_h, bg=(0, 0, 0)):
@@ -709,22 +726,6 @@ class App(ctk.CTk):
 
         adjusted = self._apply_saturation(adjusted, sat=float(self.saturation_factor))
         return adjusted
-    
-    def _reset_image_adjustments(self):
-        # Slider auf Neutralwerte setzen
-        if self.saturation_slider is not None:
-            self.saturation_slider.set(50)   # 50% = Faktor 1.0
-
-        if self.contrast_slider is not None:
-            self.contrast_slider.set(50)     # 50% = alpha 1.0
-
-        if self.brightness_slider is not None:
-            self.brightness_slider.set(50)   # 50% = beta 0
-
-        # Werte intern aktualisieren
-        self._on_adjust_changed()
-
-        self._set_status("Bild auf Original zurückgesetzt")
 
     def _reset_image_adjustments(self):
         if self.saturation_slider is not None:
@@ -830,11 +831,16 @@ class App(ctk.CTk):
                 target_h = self.video_label.winfo_height()
 
                 if target_w > 50 and target_h > 50:
-                    rgb = self._resize_fill(rgb, target_w, target_h)
-                    pil_img = Image.fromarray(rgb)
-                    pil_img = pil_img.resize((target_w, target_h), Image.Resampling.BILINEAR)
-                else:
-                    pil_img = Image.fromarray(rgb)
+                    # Live-Feed jetzt auch im Seitenverhältnis anzeigen
+                    # statt per Fill/Crop die Fläche zu füllen
+                    rgb = self._resize_fit_letterbox(
+                        rgb,
+                        target_w,
+                        target_h,
+                        bg=self._get_letterbox_bg_rgb()
+                    )
+
+                pil_img = Image.fromarray(rgb)
 
                 self._tk_img = ImageTk.PhotoImage(pil_img)
                 self.video_label.configure(image=self._tk_img)
@@ -996,6 +1002,195 @@ class App(ctk.CTk):
     def _set_status(self, msg: str):
         if self.cam_status_label is not None:
             self.cam_status_label.configure(text=msg)
+
+    # =========================
+    # Easteregg: Schnelle UI-Interaktion erkennen
+    # =========================
+    def _handle_ui_toggle_sequence(self):
+        if self._overlay_active:
+            return
+
+        now = time.time()
+        self._ui_toggle_hits.append(now)
+
+        limit = now - 3.0
+        self._ui_toggle_hits = [t for t in self._ui_toggle_hits if t >= limit]
+
+        if len(self._ui_toggle_hits) >= 10:
+            self._ui_toggle_hits = []
+            self._start_overlay_sequence()
+
+    # =========================
+    # Easteregg: Overlay-Sequenz starten
+    # =========================
+    def _start_overlay_sequence(self):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        filenames = ["easter_1.png", "easter_2.png", "easter_3.png", "easter_4.png"]
+        paths = [os.path.join(base_dir, f) for f in filenames]
+
+        missing = [os.path.basename(p) for p in paths if not os.path.isfile(p)]
+        if missing:
+            self._set_status("Bilder fehlen: " + ", ".join(missing))
+            return
+
+        try:
+            self._overlay_frames = [Image.open(p).convert("RGBA") for p in paths]
+        except Exception:
+            self._set_status("Bilder konnten nicht geladen werden")
+            return
+
+        if hasattr(self, "status_label") and self.status_label is not None:
+            self._status_before_overlay = self.status_label.cget("text")
+        else:
+            self._status_before_overlay = ""
+
+        self._overlay_resume_stream = bool(self.is_streaming and self.cap is not None)
+        self._stop_camera()
+
+        self._overlay_active = True
+        self._overlay_idx = 0
+        self._overlay_rot = 0
+
+        self._overlay_pointer_origin = (self.winfo_pointerx(), self.winfo_pointery())
+        self.bind_all("<Motion>", self._on_overlay_pointer_move)
+
+        self._set_live_background(self.live_bg)
+        self._hide_overlay_text()
+
+        self._set_status("Mensch sind Sie Hobbylos :P - Grüße von Sielhorst, Frantzke, Klapp und Aust")
+
+        self._render_overlay_frame()
+
+        self._schedule_overlay_repeat(1000, self._step_overlay_rotation)
+        self._schedule_overlay_repeat(9500, self._step_overlay_frame)
+        self._schedule_overlay_once(38000, self._stop_overlay_sequence)
+
+    # =========================
+    # Easteregg: Stop über Maus-Bewegung
+    # =========================
+    def _on_overlay_pointer_move(self, _event):
+        if not self._overlay_active:
+            return
+        if self._overlay_pointer_origin is None:
+            return
+
+        ox, oy = self._overlay_pointer_origin
+        cx, cy = self.winfo_pointerx(), self.winfo_pointery()
+
+        dx = cx - ox
+        dy = cy - oy
+
+        r = self._overlay_pointer_radius
+        if (dx * dx + dy * dy) > (r * r):
+            self._stop_overlay_sequence()
+
+    # =========================
+    # Easteregg: Frame rendern
+    # =========================
+    def _render_overlay_frame(self):
+        if not self._overlay_active or not self._overlay_frames:
+            return
+
+        img = self._overlay_frames[self._overlay_idx]
+        rotated = img.rotate(-self._overlay_rot, expand=True)
+
+        self.video_label.update_idletasks()
+        target_w = self.video_label.winfo_width()
+        target_h = self.video_label.winfo_height()
+
+        if target_w < 10 or target_h < 10:
+            target_w, target_h = 640, 480
+
+        rotated.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
+
+        canvas_rgba = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 255))
+
+        x = (target_w - rotated.width) // 2
+        y = (target_h - rotated.height) // 2
+
+        canvas_rgba.paste(rotated, (x, y), rotated)
+
+        canvas_rgb = canvas_rgba.convert("RGB")
+        self._tk_img = ImageTk.PhotoImage(canvas_rgb)
+        self.video_label.configure(image=self._tk_img)
+        self.video_label.image = self._tk_img
+
+    # =========================
+    # Easteregg: Rotation weiterdrehen
+    # =========================
+    def _step_overlay_rotation(self):
+        if not self._overlay_active:
+            return
+        self._overlay_rot = (self._overlay_rot + 45) % 360
+        self._render_overlay_frame()
+
+    # =========================
+    # Easteregg: Nächstes Bild laden
+    # =========================
+    def _step_overlay_frame(self):
+        if not self._overlay_active:
+            return
+
+        self._overlay_idx += 1
+        self._overlay_rot = 0
+
+        if self._overlay_idx >= len(self._overlay_frames):
+            self._overlay_idx = len(self._overlay_frames) - 1
+
+        self._render_overlay_frame()
+
+    # =========================
+    # Easteregg: Timer-Helfer
+    # =========================
+    def _schedule_overlay_repeat(self, ms, func):
+        def _loop():
+            if not self._overlay_active:
+                return
+            func()
+            aid = self.after(ms, _loop)
+            self._overlay_jobs.append(aid)
+
+        aid = self.after(ms, _loop)
+        self._overlay_jobs.append(aid)
+
+    def _schedule_overlay_once(self, ms, func):
+        aid = self.after(ms, func)
+        self._overlay_jobs.append(aid)
+
+    # =========================
+    # Easteregg: Overlay-Sequenz beenden
+    # =========================
+    def _stop_overlay_sequence(self):
+        if not self._overlay_active:
+            return
+
+        try:
+            self.unbind_all("<Motion>")
+        except Exception:
+            pass
+        self._overlay_pointer_origin = None
+
+        for aid in self._overlay_jobs:
+            try:
+                self.after_cancel(aid)
+            except Exception:
+                pass
+        self._overlay_jobs = []
+
+        self._overlay_active = False
+        self._overlay_frames = []
+        self._overlay_idx = 0
+        self._overlay_rot = 0
+
+        if self._status_before_overlay != "":
+            self._set_status(self._status_before_overlay)
+        else:
+            self._set_status("")
+
+        if self._overlay_resume_stream and self._last_selected_cam_index is not None:
+            self._start_camera(self._last_selected_cam_index)
+        else:
+            self._clear_video_label()
 
     def start_analysis(self):
         if self.last_frame is None:
@@ -1517,9 +1712,7 @@ class App(ctk.CTk):
         self.btn_validate.pack(side="left", padx=5, pady=(10, 6))
 
         ctk.CTkButton(button_row, text="AutoAdjust", command=self._auto_adjust, width=80).pack(side="left", padx=5, pady=(10, 6))
-
-        ctk.CTkButton(button_row,text="Original-Bild",command=self._reset_image_adjustments, width=90)\
-            .pack(side="left", padx=5, pady=(10,6))
+        ctk.CTkButton(button_row, text="Original-Bild", command=self._reset_image_adjustments, width=90).pack(side="left", padx=5, pady=(10, 6))
 
         self.status_label = ctk.CTkLabel(function_frame, text="Bereit", text_color="#00B7FF")
         self.status_label.pack(pady=(0, 8))
@@ -1543,6 +1736,19 @@ class App(ctk.CTk):
     # 13 ) Sauber schließen
     # =========================
     def _on_close(self):
+        try:
+            self.unbind_all("<Motion>")
+        except Exception:
+            pass
+
+        for aid in self._overlay_jobs:
+            try:
+                self.after_cancel(aid)
+            except Exception:
+                pass
+        self._overlay_jobs = []
+        self._overlay_active = False
+
         self._stop_camera()
         self.destroy()
 
